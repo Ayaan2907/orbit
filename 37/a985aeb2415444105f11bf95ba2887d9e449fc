@@ -1,0 +1,22 @@
+apps/web/tests/features/settings/settings-shell.test.tsx
+  s_675cb897d90218::t_46bd16f42764c0 1-14,28-39,53-65,69-70
+  s_675cb897d90218::t_38db5f63365be9 15-27,40-52,66-68
+apps/web/tests/features/settings/settings-sidebar.test.tsx
+  s_675cb897d90218::t_d6ea85edc25c48 1-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "37a985aeb2415444105f11bf95ba2887d9e449fc",
+  "prompts": {},
+  "sessions": {
+    "s_675cb897d90218": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "8b223bbd-6bbb-413f-b552-7b0222572a83",
+        "model": "composer-2.5"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
