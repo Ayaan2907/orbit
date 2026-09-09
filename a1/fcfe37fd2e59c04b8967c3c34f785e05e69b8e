@@ -1,0 +1,19 @@
+apps/web/src/app/(app)/settings/layout.tsx
+  s_675cb897d90218::t_0dd109ad51e1f3 2,6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a1fcfe37fd2e59c04b8967c3c34f785e05e69b8e",
+  "prompts": {},
+  "sessions": {
+    "s_675cb897d90218": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "8b223bbd-6bbb-413f-b552-7b0222572a83",
+        "model": "composer-2.5"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
