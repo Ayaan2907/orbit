@@ -1,0 +1,26 @@
+apps/web/src/features/settings/use-settings-sidebar-navigation.ts
+  s_675cb897d90218::t_43e786bd3d9448 23,36,39-40,45,47
+  s_675cb897d90218::t_8b96417fd0029d 28,37-38,44
+docs/keyboard-shortcuts.md
+  s_675cb897d90218::t_43889bce6ae4bf 47
+apps/web/src/features/settings/settings-sidebar.tsx
+  s_675cb897d90218::t_657dc02412b73b 5,8,20,52
+apps/web/tests/features/settings/settings-sidebar.test.tsx
+  s_675cb897d90218::t_6f7abe2dc34a69 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1cf346bf655bcb3c60be32f2aea092ec23493149",
+  "prompts": {},
+  "sessions": {
+    "s_675cb897d90218": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "8b223bbd-6bbb-413f-b552-7b0222572a83",
+        "model": "default"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
