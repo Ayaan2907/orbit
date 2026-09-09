@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -20,6 +21,8 @@ import {
 
 export const SECTION_ORDER: readonly HotkeySection[] = ['Navigation', 'Issues', 'View', 'General'];
 
+const SCROLL_STEP_PX = 40;
+
 function bufferFor(entry: HotkeyEntry): BufferedStep[] {
   return entry.steps.map((step, index) => ({ ...step, at: index }));
 }
@@ -38,10 +41,30 @@ export interface ShortcutsOverlayProps {
 
 export function ShortcutsOverlay({ open, onOpenChange }: ShortcutsOverlayProps) {
   const live = resolvedHotkeys(useHotkeyList());
+  const scrollRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    scrollRef.current?.focus({ preventScroll: true });
+  }, [open]);
+
+  const scrollByArrow = (key: string) => {
+    const node = scrollRef.current;
+    if (node === null) return;
+    node.scrollBy({ top: key === 'ArrowDown' ? SCROLL_STEP_PX : -SCROLL_STEP_PX });
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] max-w-md flex-col overflow-hidden">
+      <DialogContent
+        className="flex max-h-[calc(100dvh-2rem)] max-w-md flex-col overflow-hidden"
+        onKeyDown={(event) => {
+          if (event.metaKey || event.ctrlKey || event.altKey) return;
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+          event.preventDefault();
+          scrollByArrow(event.key);
+        }}
+      >
         <DialogHeader className="shrink-0">
           <DialogTitle className="font-medium text-base text-text">Keyboard shortcuts</DialogTitle>
           <DialogDescription className="text-muted text-xs">
@@ -49,8 +72,11 @@ export function ShortcutsOverlay({ open, onOpenChange }: ShortcutsOverlayProps) 
             {SEQUENCE_TIMEOUT_MS}ms.
           </DialogDescription>
         </DialogHeader>
-        <div
-          className="max-h-[min(60vh,calc(100dvh-12rem))] overflow-y-auto overscroll-contain"
+        <section
+          ref={scrollRef}
+          tabIndex={-1}
+          aria-label="Keyboard shortcuts list"
+          className="max-h-[min(60vh,calc(100dvh-12rem))] overflow-y-auto overscroll-contain outline-none"
           data-testid="shortcuts-scroll"
         >
           <div className="flex flex-col gap-5 pr-2" data-testid="shortcuts-sections">
@@ -77,7 +103,7 @@ export function ShortcutsOverlay({ open, onOpenChange }: ShortcutsOverlayProps) 
               );
             })}
           </div>
-        </div>
+        </section>
       </DialogContent>
     </Dialog>
   );
