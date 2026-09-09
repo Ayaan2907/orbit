@@ -1,10 +1,11 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as navigation from 'next/navigation';
 import { SettingsSidebar } from '@/features/settings/settings-sidebar.tsx';
 import { SettingsNavProvider } from '@/features/settings/use-settings-nav.ts';
 import { HotkeyProvider } from '@/lib/keyboard/index.ts';
+import { DESKTOP_QUERY } from '@/lib/use-media-query.ts';
 
 const pathname = mock(() => '/settings/general');
 const close = mock();
@@ -15,6 +16,38 @@ mock.module('next/navigation', () => ({
   usePathname: pathname,
   useRouter: () => ({ push, replace: mock(), refresh: mock(), back: mock() }),
 }));
+
+function mockViewport(desktop: boolean) {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: desktop && query === DESKTOP_QUERY,
+      media: query,
+      onchange: null,
+      addEventListener: mock(),
+      removeEventListener: mock(),
+      addListener: mock(),
+      removeListener: mock(),
+      dispatchEvent: mock(),
+    }),
+  });
+}
+
+function restoreViewport() {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: mock(),
+      removeEventListener: mock(),
+      addListener: mock(),
+      removeListener: mock(),
+      dispatchEvent: mock(),
+    }),
+  });
+}
 
 function renderSidebar(passwordEnabled: boolean, open: boolean) {
   return render(
@@ -37,6 +70,10 @@ function keyboardFocusLink(name: string) {
 }
 
 describe('SettingsSidebar', () => {
+  afterEach(() => {
+    restoreViewport();
+  });
+
   it('lists account and workspace sections separately', () => {
     pathname.mockReturnValue('/settings/general');
     renderSidebar(false, false);
@@ -71,7 +108,8 @@ describe('SettingsSidebar', () => {
     );
   });
 
-  it('moves keyboard focus down and up the sidebar with j and k', async () => {
+  it('moves keyboard focus down and up the sidebar with j and k on desktop', async () => {
+    mockViewport(true);
     pathname.mockReturnValue('/settings/general');
     const user = userEvent.setup();
     renderSidebar(false, false);
@@ -86,7 +124,42 @@ describe('SettingsSidebar', () => {
     expect(keyboardFocusLink('General')).toHaveAttribute('data-keyboard-focus', 'true');
   });
 
-  it('opens the focused section when enter is pressed away from a link', async () => {
+  it('ignores j and k when the mobile drawer is closed', async () => {
+    mockViewport(false);
+    pathname.mockReturnValue('/settings/general');
+    const user = userEvent.setup();
+    renderSidebar(false, false);
+
+    await user.keyboard('j');
+
+    expect(keyboardFocusLink('General')).toHaveAttribute('data-keyboard-focus', 'true');
+    expect(keyboardFocusLink('Members')).not.toHaveAttribute('data-keyboard-focus');
+  });
+
+  it('moves keyboard focus when the mobile drawer is open', async () => {
+    mockViewport(false);
+    pathname.mockReturnValue('/settings/general');
+    const user = userEvent.setup();
+    renderSidebar(false, true);
+
+    await user.keyboard('j');
+
+    expect(keyboardFocusLink('Members')).toHaveAttribute('data-keyboard-focus', 'true');
+  });
+
+  it('focuses the target link so enter can activate it natively', async () => {
+    mockViewport(true);
+    pathname.mockReturnValue('/settings/general');
+    const user = userEvent.setup();
+    renderSidebar(false, false);
+
+    await user.keyboard('j');
+
+    expect(keyboardFocusLink('Members')).toHaveFocus();
+  });
+
+  it('does not navigate when enter is pressed away from the focused link', async () => {
+    mockViewport(true);
     pathname.mockReturnValue('/settings/general');
     push.mockClear();
     close.mockClear();
@@ -97,8 +170,8 @@ describe('SettingsSidebar', () => {
     keyboardFocusLink('Members').blur();
     await user.keyboard('{Enter}');
 
-    expect(push).toHaveBeenCalledWith('/settings/members');
-    expect(close).toHaveBeenCalledTimes(1);
+    expect(push).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
   });
 
   it('closes the drawer when a section is chosen', async () => {

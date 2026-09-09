@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HOTKEY_PRIORITY, useHotkey } from '@/lib/keyboard/index.ts';
+import { DESKTOP_QUERY, useMediaQuery } from '@/lib/use-media-query.ts';
 import { type SettingsSection, settingsSectionsFlat } from './settings-sections.ts';
 import { useSettingsNav } from './use-settings-nav.ts';
 
@@ -21,7 +22,9 @@ export function useSettingsSidebarNavigation({
   pathname,
 }: UseSettingsSidebarNavigationOptions) {
   const router = useRouter();
-  const { close } = useSettingsNav();
+  const { close, open } = useSettingsNav();
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
+  const sidebarInteractive = open || isDesktop;
   const sections = useMemo(() => settingsSectionsFlat(passwordEnabled), [passwordEnabled]);
   const linkRefs = useRef<(HTMLAnchorElement | null)[]>([]);
   const routeIndex = sectionIndex(sections, pathname);
@@ -49,6 +52,9 @@ export function useSettingsSidebarNavigation({
   const openFocused = useCallback(() => {
     const section = sections[focusIndex];
     if (section === undefined) return;
+    const focusedLink = linkRefs.current[focusIndex];
+    if (focusedLink === null || focusedLink === undefined) return;
+    if (document.activeElement !== focusedLink) return;
     router.push(section.href);
     close();
   }, [close, focusIndex, router, sections]);
@@ -58,6 +64,7 @@ export function useSettingsSidebarNavigation({
     section: 'Settings',
     scope: 'settings',
     priority: HOTKEY_PRIORITY.surface,
+    enabled: sidebarInteractive,
     aliases: ['down'],
   });
   useHotkey('k', () => step(-1), {
@@ -65,6 +72,7 @@ export function useSettingsSidebarNavigation({
     section: 'Settings',
     scope: 'settings',
     priority: HOTKEY_PRIORITY.surface,
+    enabled: sidebarInteractive,
     aliases: ['up'],
   });
   useHotkey('enter', openFocused, {
@@ -72,6 +80,8 @@ export function useSettingsSidebarNavigation({
     section: 'Settings',
     scope: 'settings',
     priority: HOTKEY_PRIORITY.surface,
+    enabled: sidebarInteractive,
+    preventDefault: false,
   });
 
   const registerLinkRef = useCallback((index: number, node: HTMLAnchorElement | null) => {

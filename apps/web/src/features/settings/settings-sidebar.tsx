@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/cn.ts';
+import { tabHover } from '@/lib/interaction.ts';
 import { settingsGroupsFor } from './settings-sections.ts';
 import { useSettingsNav } from './use-settings-nav.ts';
 import { useSettingsSidebarNavigation } from './use-settings-sidebar-navigation.ts';
@@ -61,10 +62,11 @@ export function SettingsSidebar({ passwordEnabled = false }: SettingsSidebarProp
                       data-keyboard-focus={focused ? 'true' : undefined}
                       onClick={close}
                       className={cn(
-                        'block rounded-md px-2 py-1.5 text-dense outline-none transition-colors duration-[var(--duration-fast)] focus-visible:bg-surface-2 focus-visible:font-medium focus-visible:text-text',
+                        'block rounded-md px-2 py-1.5 text-dense outline-none focus-visible:bg-surface-2 focus-visible:font-medium focus-visible:text-text',
+                        tabHover,
                         active
                           ? 'bg-surface-2 font-medium text-text'
-                          : 'text-muted hover:bg-surface-2 hover:text-text',
+                          : 'text-muted hover:bg-surface-2',
                       )}
                     >
                       {section.label}
