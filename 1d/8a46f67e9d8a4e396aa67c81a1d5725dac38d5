@@ -1,0 +1,30 @@
+apps/web/src/features/settings/settings-sidebar.tsx
+  s_675cb897d90218::t_b05fee46e9af77 65-66,69
+  s_675cb897d90218::t_53bb4d13b1ff2b 6
+apps/web/src/features/settings/use-settings-sidebar-navigation.ts
+  s_675cb897d90218::t_fc82c24bc3e6c2 6
+  s_675cb897d90218::t_2ddc645bdda709 25-27
+  s_675cb897d90218::t_ed6a453eeaa8d9 55-57,67,75,83-84
+apps/web/tests/features/settings/settings-sidebar.test.tsx
+  s_675cb897d90218::t_b788e1ef8fbc74 1,8,20-51,73-76,111-112,127-148,151-154,156,159-162,173-174
+  s_675cb897d90218::t_caa7bf15b6a697 150,158
+  s_675cb897d90218::t_537582e25c64b0 149
+  s_675cb897d90218::t_a45c882f0327f4 155
+  s_675cb897d90218::t_b8888e415d33c1 157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1d8a46f67e9d8a4e396aa67c81a1d5725dac38d5",
+  "prompts": {},
+  "sessions": {
+    "s_675cb897d90218": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "8b223bbd-6bbb-413f-b552-7b0222572a83",
+        "model": "composer-2.5"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
