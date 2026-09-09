@@ -4,27 +4,36 @@ import userEvent from '@testing-library/user-event';
 import * as navigation from 'next/navigation';
 import { SettingsSidebar } from '@/features/settings/settings-sidebar.tsx';
 import { SettingsNavProvider } from '@/features/settings/use-settings-nav.ts';
+import { HotkeyProvider } from '@/lib/keyboard/index.ts';
 
 const pathname = mock(() => '/settings/general');
 const close = mock();
+const push = mock();
 
 mock.module('next/navigation', () => ({
   ...navigation,
   usePathname: pathname,
+  useRouter: () => ({ push, replace: mock(), refresh: mock(), back: mock() }),
 }));
 
 function renderSidebar(passwordEnabled: boolean, open: boolean) {
   return render(
-    <SettingsNavProvider
-      value={{
-        open,
-        toggle: mock(),
-        close,
-      }}
-    >
-      <SettingsSidebar passwordEnabled={passwordEnabled} />
-    </SettingsNavProvider>,
+    <HotkeyProvider>
+      <SettingsNavProvider
+        value={{
+          open,
+          toggle: mock(),
+          close,
+        }}
+      >
+        <SettingsSidebar passwordEnabled={passwordEnabled} />
+      </SettingsNavProvider>
+    </HotkeyProvider>,
   );
+}
+
+function keyboardFocusLink(name: string) {
+  return screen.getByRole('link', { name });
 }
 
 describe('SettingsSidebar', () => {
@@ -62,6 +71,36 @@ describe('SettingsSidebar', () => {
     );
   });
 
+  it('moves keyboard focus down and up the sidebar with j and k', async () => {
+    pathname.mockReturnValue('/settings/general');
+    const user = userEvent.setup();
+    renderSidebar(false, false);
+
+    expect(keyboardFocusLink('General')).toHaveAttribute('data-keyboard-focus', 'true');
+
+    await user.keyboard('j');
+    expect(keyboardFocusLink('Members')).toHaveAttribute('data-keyboard-focus', 'true');
+    expect(keyboardFocusLink('General')).not.toHaveAttribute('data-keyboard-focus');
+
+    await user.keyboard('k');
+    expect(keyboardFocusLink('General')).toHaveAttribute('data-keyboard-focus', 'true');
+  });
+
+  it('opens the focused section when enter is pressed away from a link', async () => {
+    pathname.mockReturnValue('/settings/general');
+    push.mockClear();
+    close.mockClear();
+    const user = userEvent.setup();
+    renderSidebar(false, false);
+
+    await user.keyboard('j');
+    keyboardFocusLink('Members').blur();
+    await user.keyboard('{Enter}');
+
+    expect(push).toHaveBeenCalledWith('/settings/members');
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it('closes the drawer when a section is chosen', async () => {
     pathname.mockReturnValue('/settings/general');
     close.mockClear();
@@ -90,15 +129,17 @@ describe('SettingsSidebar', () => {
     expect(screen.getByTestId('settings-sidebar').className).toContain('hidden');
 
     closed.rerender(
-      <SettingsNavProvider
-        value={{
-          open: true,
-          toggle: mock(),
-          close,
-        }}
-      >
-        <SettingsSidebar passwordEnabled={false} />
-      </SettingsNavProvider>,
+      <HotkeyProvider>
+        <SettingsNavProvider
+          value={{
+            open: true,
+            toggle: mock(),
+            close,
+          }}
+        >
+          <SettingsSidebar passwordEnabled={false} />
+        </SettingsNavProvider>
+      </HotkeyProvider>,
     );
 
     expect(screen.getByTestId('settings-sidebar').className).toContain('fixed');

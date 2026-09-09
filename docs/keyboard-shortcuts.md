@@ -34,6 +34,19 @@ Press <kbd>g</kbd>, release it, then press the second key.
 | <kbd>g</kbd> <kbd>v</kbd> | Views |
 | <kbd>g</kbd> <kbd>a</kbd> | Analytics |
 | <kbd>g</kbd> <kbd>d</kbd> | Docs |
+| <kbd>g</kbd> <kbd>e</kbd> | Settings |
+
+## Settings
+
+On any settings page, move through the sidebar with the keyboard.
+
+| Keys | Does |
+| --- | --- |
+| <kbd>j</kbd> or <kbd>Down</kbd> | Next section |
+| <kbd>k</kbd> or <kbd>Up</kbd> | Previous section |
+| <kbd>Enter</kbd> | Open the focused section |
+
+Account sections come first, then workspace sections, in the same order as the sidebar.
 
 ## Issues
 

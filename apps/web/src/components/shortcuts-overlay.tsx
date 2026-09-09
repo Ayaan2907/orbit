@@ -19,7 +19,13 @@ import {
   useHotkeyList,
 } from '@/lib/keyboard/index.ts';
 
-export const SECTION_ORDER: readonly HotkeySection[] = ['Navigation', 'Issues', 'View', 'General'];
+export const SECTION_ORDER: readonly HotkeySection[] = [
+  'Navigation',
+  'Issues',
+  'Settings',
+  'View',
+  'General',
+];
 
 function bufferFor(entry: HotkeyEntry): BufferedStep[] {
   return entry.steps.map((step, index) => ({ ...step, at: index }));

@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/cn.ts';
 import { settingsGroupsFor } from './settings-sections.ts';
 import { useSettingsNav } from './use-settings-nav.ts';
+import { useSettingsSidebarNavigation } from './use-settings-sidebar-navigation.ts';
 
 export interface SettingsSidebarProps {
   readonly passwordEnabled?: boolean;
@@ -14,6 +15,12 @@ export function SettingsSidebar({ passwordEnabled = false }: SettingsSidebarProp
   const pathname = usePathname();
   const { open, close } = useSettingsNav();
   const groups = settingsGroupsFor(passwordEnabled);
+  const { focusIndex, registerLinkRef } = useSettingsSidebarNavigation({
+    passwordEnabled,
+    pathname,
+  });
+
+  let flatIndex = 0;
 
   return (
     <>
@@ -41,15 +48,20 @@ export function SettingsSidebar({ passwordEnabled = false }: SettingsSidebarProp
             </p>
             <ul className="flex flex-col gap-0.5">
               {group.sections.map((section) => {
+                const index = flatIndex;
+                flatIndex += 1;
                 const active = pathname === section.href;
+                const focused = focusIndex === index;
                 return (
                   <li key={section.href}>
                     <Link
+                      ref={(node) => registerLinkRef(index, node)}
                       href={section.href}
                       aria-current={active ? 'page' : undefined}
+                      data-keyboard-focus={focused ? 'true' : undefined}
                       onClick={close}
                       className={cn(
-                        'block rounded-md px-2 py-1.5 text-dense transition-colors duration-[var(--duration-fast)]',
+                        'block rounded-md px-2 py-1.5 text-dense outline-none transition-colors duration-[var(--duration-fast)] focus-visible:bg-surface-2 focus-visible:font-medium focus-visible:text-text',
                         active
                           ? 'bg-surface-2 font-medium text-text'
                           : 'text-muted hover:bg-surface-2 hover:text-text',
