@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import userEvent from '@testing-library/user-event';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { CommandPalette } from '@/components/command-palette.tsx';
 import { ShortcutsOverlay } from '@/components/shortcuts-overlay.tsx';
-import { HOTKEY_PRIORITY, HotkeyProvider, useHotkey } from '@/lib/keyboard/index.ts';
+import {
+  HOTKEY_PRIORITY,
+  HotkeyProvider,
+  useHotkey,
+  useHotkeyRegistry,
+} from '@/lib/keyboard/index.ts';
 import { buildNavigation } from '@/lib/navigation.ts';
 import { render, screen } from '@/test/render.tsx';
 
@@ -76,6 +81,31 @@ function CompetingSingleKey({ run }: { readonly run: () => void }) {
     scope: 'issues',
     priority: HOTKEY_PRIORITY.surface,
   });
+  return null;
+}
+
+function SeedManyShortcuts({ count }: { readonly count: number }) {
+  const registry = useHotkeyRegistry();
+  useEffect(() => {
+    const disposers = Array.from({ length: count }, (_, index) =>
+      registry.register({
+        id: `seed-shortcut-${index}`,
+        binding: `ctrl+shift+${index}`,
+        label: `Overflow shortcut ${index}`,
+        section: 'General',
+        scope: 'global',
+        priority: HOTKEY_PRIORITY.global,
+        enabled: true,
+        advertised: true,
+        preventDefault: true,
+        allowInInput: false,
+        run: noop,
+      }),
+    );
+    return () => {
+      for (const dispose of disposers) dispose();
+    };
+  }, [registry, count]);
   return null;
 }
 
@@ -231,5 +261,22 @@ describe('shortcuts overlay', () => {
     const list = await screen.findByTestId('shortcuts-sections');
     const headings = [...list.querySelectorAll('h3')].map((node) => node.textContent);
     expect(headings).toEqual(['Issues']);
+  });
+
+  it('uses a scroll container when the shortcut list overflows', async () => {
+    render(
+      <HotkeyProvider>
+        <SeedManyShortcuts count={30} />
+        <ShortcutsOverlay open onOpenChange={noop} />
+      </HotkeyProvider>,
+    );
+
+    const scroll = await screen.findByTestId('shortcuts-scroll');
+    expect(scroll.className).toContain('overflow-y-auto');
+    expect(screen.getByTestId('shortcuts-sections').textContent).toContain('Overflow shortcut 29');
+
+    Object.defineProperty(scroll, 'clientHeight', { configurable: true, value: 200 });
+    Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 800 });
+    expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
   });
 });
