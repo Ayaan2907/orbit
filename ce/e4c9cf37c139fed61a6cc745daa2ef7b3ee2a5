@@ -1,0 +1,21 @@
+apps/web/tests/components/command-palette.test.tsx
+  s_f92b5759f21a0b::t_ac45eb57a73384 265-281
+  s_f92b5759f21a0b::t_e8897e99d60f4a 3,6-11
+  s_f92b5759f21a0b::t_c27f0d58e69190 87-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "cee4c9cf37c139fed61a6cc745daa2ef7b3ee2a5",
+  "prompts": {},
+  "sessions": {
+    "s_f92b5759f21a0b": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "50a4e6f3-b9a9-40cd-afbe-d3397b7d9b3e",
+        "model": "composer-2.5"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
