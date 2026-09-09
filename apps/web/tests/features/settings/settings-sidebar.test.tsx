@@ -9,12 +9,11 @@ import { DESKTOP_QUERY } from '@/lib/use-media-query.ts';
 
 const pathname = mock(() => '/settings/general');
 const close = mock();
-const push = mock();
 
 mock.module('next/navigation', () => ({
   ...navigation,
   usePathname: pathname,
-  useRouter: () => ({ push, replace: mock(), refresh: mock(), back: mock() }),
+  useRouter: () => ({ push: mock(), replace: mock(), refresh: mock(), back: mock() }),
 }));
 
 function mockViewport(desktop: boolean) {
@@ -156,22 +155,6 @@ describe('SettingsSidebar', () => {
     await user.keyboard('j');
 
     expect(keyboardFocusLink('Members')).toHaveFocus();
-  });
-
-  it('does not navigate when enter is pressed away from the focused link', async () => {
-    mockViewport(true);
-    pathname.mockReturnValue('/settings/general');
-    push.mockClear();
-    close.mockClear();
-    const user = userEvent.setup();
-    renderSidebar(false, false);
-
-    await user.keyboard('j');
-    keyboardFocusLink('Members').blur();
-    await user.keyboard('{Enter}');
-
-    expect(push).not.toHaveBeenCalled();
-    expect(close).not.toHaveBeenCalled();
   });
 
   it('closes the drawer when a section is chosen', async () => {

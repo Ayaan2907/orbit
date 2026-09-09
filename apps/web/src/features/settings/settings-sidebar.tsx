@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useMemo } from 'react';
 import { cn } from '@/lib/cn.ts';
 import { tabHover } from '@/lib/interaction.ts';
-import { settingsGroupsFor } from './settings-sections.ts';
+import { settingsGroupsFor, settingsSectionsFlat } from './settings-sections.ts';
 import { useSettingsNav } from './use-settings-nav.ts';
 import { useSettingsSidebarNavigation } from './use-settings-sidebar-navigation.ts';
 
@@ -16,12 +17,11 @@ export function SettingsSidebar({ passwordEnabled = false }: SettingsSidebarProp
   const pathname = usePathname();
   const { open, close } = useSettingsNav();
   const groups = settingsGroupsFor(passwordEnabled);
+  const sections = useMemo(() => settingsSectionsFlat(passwordEnabled), [passwordEnabled]);
   const { focusIndex, registerLinkRef } = useSettingsSidebarNavigation({
     passwordEnabled,
     pathname,
   });
-
-  let flatIndex = 0;
 
   return (
     <>
@@ -49,8 +49,7 @@ export function SettingsSidebar({ passwordEnabled = false }: SettingsSidebarProp
             </p>
             <ul className="flex flex-col gap-0.5">
               {group.sections.map((section) => {
-                const index = flatIndex;
-                flatIndex += 1;
+                const index = sections.findIndex((entry) => entry.href === section.href);
                 const active = pathname === section.href;
                 const focused = focusIndex === index;
                 return (

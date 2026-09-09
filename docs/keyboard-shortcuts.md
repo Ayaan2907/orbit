@@ -44,7 +44,7 @@ On any settings page, move through the sidebar with the keyboard.
 | --- | --- |
 | <kbd>j</kbd> or <kbd>Down</kbd> | Next section |
 | <kbd>k</kbd> or <kbd>Up</kbd> | Previous section |
-| <kbd>Enter</kbd> | Open the focused section |
+| <kbd>Enter</kbd> | Open the focused section (native link activation) |
 
 Account sections come first, then workspace sections, in the same order as the sidebar.
 

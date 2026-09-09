@@ -1,6 +1,5 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HOTKEY_PRIORITY, useHotkey } from '@/lib/keyboard/index.ts';
 import { DESKTOP_QUERY, useMediaQuery } from '@/lib/use-media-query.ts';
@@ -21,12 +20,12 @@ export function useSettingsSidebarNavigation({
   passwordEnabled,
   pathname,
 }: UseSettingsSidebarNavigationOptions) {
-  const router = useRouter();
-  const { close, open } = useSettingsNav();
+  const { open } = useSettingsNav();
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
   const sidebarInteractive = open || isDesktop;
   const sections = useMemo(() => settingsSectionsFlat(passwordEnabled), [passwordEnabled]);
   const linkRefs = useRef<(HTMLAnchorElement | null)[]>([]);
+  const shouldFocusRef = useRef(false);
   const routeIndex = sectionIndex(sections, pathname);
   const [focusIndex, setFocusIndex] = useState(routeIndex);
 
@@ -34,30 +33,19 @@ export function useSettingsSidebarNavigation({
     setFocusIndex(routeIndex);
   }, [routeIndex]);
 
-  const focusLink = useCallback((index: number) => {
-    linkRefs.current[index]?.focus();
-  }, []);
+  useEffect(() => {
+    if (!shouldFocusRef.current) return;
+    shouldFocusRef.current = false;
+    linkRefs.current[focusIndex]?.focus();
+  }, [focusIndex]);
 
   const step = useCallback(
     (direction: 1 | -1) => {
-      setFocusIndex((current) => {
-        const next = Math.min(Math.max(current + direction, 0), sections.length - 1);
-        focusLink(next);
-        return next;
-      });
+      shouldFocusRef.current = true;
+      setFocusIndex((current) => Math.min(Math.max(current + direction, 0), sections.length - 1));
     },
-    [focusLink, sections.length],
+    [sections.length],
   );
-
-  const openFocused = useCallback(() => {
-    const section = sections[focusIndex];
-    if (section === undefined) return;
-    const focusedLink = linkRefs.current[focusIndex];
-    if (focusedLink === null || focusedLink === undefined) return;
-    if (document.activeElement !== focusedLink) return;
-    router.push(section.href);
-    close();
-  }, [close, focusIndex, router, sections]);
 
   useHotkey('j', () => step(1), {
     label: 'Next settings section',
@@ -74,14 +62,6 @@ export function useSettingsSidebarNavigation({
     priority: HOTKEY_PRIORITY.surface,
     enabled: sidebarInteractive,
     aliases: ['up'],
-  });
-  useHotkey('enter', openFocused, {
-    label: 'Open focused settings section',
-    section: 'Settings',
-    scope: 'settings',
-    priority: HOTKEY_PRIORITY.surface,
-    enabled: sidebarInteractive,
-    preventDefault: false,
   });
 
   const registerLinkRef = useCallback((index: number, node: HTMLAnchorElement | null) => {
