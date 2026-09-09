@@ -8,7 +8,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog.tsx';
 import { Kbd } from '@/components/ui/kbd.tsx';
-import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import {
   type BufferedStep,
   formatBinding,
@@ -42,15 +41,18 @@ export function ShortcutsOverlay({ open, onOpenChange }: ShortcutsOverlayProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] max-w-md flex-col overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="font-medium text-base text-text">Keyboard shortcuts</DialogTitle>
           <DialogDescription className="text-muted text-xs">
             Every shortcut listed is live on this screen. Sequences must be typed within{' '}
             {SEQUENCE_TIMEOUT_MS}ms.
           </DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[60vh]">
+        <div
+          className="max-h-[min(60vh,calc(100dvh-12rem))] overflow-y-auto overscroll-contain"
+          data-testid="shortcuts-scroll"
+        >
           <div className="flex flex-col gap-5 pr-2" data-testid="shortcuts-sections">
             {SECTION_ORDER.map((section) => {
               const items = live
@@ -75,7 +77,7 @@ export function ShortcutsOverlay({ open, onOpenChange }: ShortcutsOverlayProps) 
               );
             })}
           </div>
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   );
