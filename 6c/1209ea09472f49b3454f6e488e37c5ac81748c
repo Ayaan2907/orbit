@@ -1,0 +1,56 @@
+docs/keyboard-shortcuts.md
+  s_675cb897d90218::t_98bad1074e6d01 37-40,42,44,48
+  s_675cb897d90218::t_ebf897737271fd 41,43,45-47,49
+apps/web/src/lib/navigation.ts
+  s_675cb897d90218::t_e50b48a183cf86 205-206
+apps/web/tests/features/settings/settings-shell.test.tsx
+  s_675cb897d90218::t_a372d328b264ba 62
+  s_675cb897d90218::t_5ad956d1ae19b2 49
+  s_675cb897d90218::t_fdaf1c6a58f849 5
+  s_675cb897d90218::t_33fdc58e9c4fe0 37
+  s_675cb897d90218::t_1bfa7df94b1723 7,14,17-20,24
+apps/web/tests/features/settings/settings-sections.test.ts
+  s_675cb897d90218::t_25b5d59651b520 2-6
+  s_675cb897d90218::t_2f696090208080 31,46-48,51-65
+  s_675cb897d90218::t_3252136dd73ef8 32-45,49-50
+apps/web/src/features/settings/settings-sections.ts
+  s_675cb897d90218::t_1ebb2499328cff 60-63
+apps/web/tests/lib/navigation.test.ts
+  s_675cb897d90218::t_7d15b9205da12a 77-94
+apps/web/src/lib/keyboard/registry.ts
+  s_675cb897d90218::t_2b1bccee782f4d 3,5
+apps/web/src/components/command-palette.tsx
+  s_675cb897d90218::t_005a55aca5d823 5-13
+  s_675cb897d90218::t_c7fbd7496d403b 41
+apps/web/src/components/shortcuts-overlay.tsx
+  h_2b4d3b3a290ce6 22
+  h_2b4d3b3a290ce6 23-28
+apps/web/src/features/settings/settings-sidebar.tsx
+  s_675cb897d90218::t_754642026c594d 8,18-23,51-52,54,58,61,64
+apps/web/src/features/settings/use-settings-sidebar-navigation.ts
+  s_675cb897d90218::t_dfe5273298439f 1-86
+apps/web/tests/features/settings/settings-sidebar.test.tsx
+  s_675cb897d90218::t_44b013b5fd2cef 89,97
+  s_675cb897d90218::t_91ddc2161f8d69 7,11,16,21-31,35-38,74-88,90-96,98-103,132-142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6c1209ea09472f49b3454f6e488e37c5ac81748c",
+  "prompts": {},
+  "humans": {
+    "h_2b4d3b3a290ce6": {
+      "author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  },
+  "sessions": {
+    "s_675cb897d90218": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "8b223bbd-6bbb-413f-b552-7b0222572a83",
+        "model": "composer-2.5"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
