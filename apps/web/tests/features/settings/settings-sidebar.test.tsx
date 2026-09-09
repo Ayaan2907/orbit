@@ -121,6 +121,13 @@ describe('SettingsSidebar', () => {
 
     await user.keyboard('k');
     expect(keyboardFocusLink('General')).toHaveAttribute('data-keyboard-focus', 'true');
+
+    await user.keyboard('{ArrowDown}');
+    expect(keyboardFocusLink('Members')).toHaveAttribute('data-keyboard-focus', 'true');
+    expect(keyboardFocusLink('General')).not.toHaveAttribute('data-keyboard-focus');
+
+    await user.keyboard('{ArrowUp}');
+    expect(keyboardFocusLink('General')).toHaveAttribute('data-keyboard-focus', 'true');
   });
 
   it('ignores j and k when the mobile drawer is closed', async () => {
