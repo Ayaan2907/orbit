@@ -1,0 +1,19 @@
+apps/web/tests/components/layout/workspace-switcher.test.tsx
+  s_675cb897d90218::t_c3c73fa2a8fed3 150-152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "66bbe162e6cab54ef847f3efc124b2f869c95aaf",
+  "prompts": {},
+  "sessions": {
+    "s_675cb897d90218": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "8b223bbd-6bbb-413f-b552-7b0222572a83",
+        "model": "composer-2.5"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
