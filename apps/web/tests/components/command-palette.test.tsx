@@ -10,7 +10,7 @@ import {
   useHotkeyRegistry,
 } from '@/lib/keyboard/index.ts';
 import { buildNavigation } from '@/lib/navigation.ts';
-import { render, screen } from '@/test/render.tsx';
+import { fireEvent, render, screen } from '@/test/render.tsx';
 
 const push = mock();
 const setTheme = mock();
@@ -278,5 +278,25 @@ describe('shortcuts overlay', () => {
     Object.defineProperty(scroll, 'clientHeight', { configurable: true, value: 200 });
     Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 800 });
     expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
+  });
+
+  it('scrolls the shortcut list with arrow keys', async () => {
+    render(
+      <HotkeyProvider>
+        <SeedManyShortcuts count={30} />
+        <ShortcutsOverlay open onOpenChange={noop} />
+      </HotkeyProvider>,
+    );
+
+    const scroll = await screen.findByTestId('shortcuts-scroll');
+    Object.defineProperty(scroll, 'clientHeight', { configurable: true, value: 200 });
+    Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 800 });
+    scroll.scrollTop = 0;
+
+    fireEvent.keyDown(scroll, { key: 'ArrowDown' });
+    expect(scroll.scrollTop).toBe(40);
+
+    fireEvent.keyDown(scroll, { key: 'ArrowUp' });
+    expect(scroll.scrollTop).toBe(0);
   });
 });
