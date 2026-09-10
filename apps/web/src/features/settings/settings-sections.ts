@@ -1,9 +1,3 @@
-'use client';
-
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { cn } from '@/lib/cn.ts';
-
 export interface SettingsSection {
   readonly href: string;
   readonly label: string;
@@ -47,7 +41,7 @@ const PASSWORD_SECTION: SettingsSection = {
   label: 'Password',
 };
 
-function groupsFor(passwordEnabled: boolean): readonly SettingsGroup[] {
+export function settingsGroupsFor(passwordEnabled: boolean): readonly SettingsGroup[] {
   if (!passwordEnabled) return SETTINGS_GROUPS;
   return SETTINGS_GROUPS.map((group) => {
     if (group.id !== 'account') return group;
@@ -62,44 +56,4 @@ function groupsFor(passwordEnabled: boolean): readonly SettingsGroup[] {
       ],
     };
   });
-}
-
-export interface SettingsNavProps {
-  readonly passwordEnabled?: boolean;
-}
-
-export function SettingsNav({ passwordEnabled = false }: SettingsNavProps) {
-  const pathname = usePathname();
-  return (
-    <nav aria-label="Settings sections" className="flex flex-col gap-4 sm:flex-row sm:gap-8">
-      {groupsFor(passwordEnabled).map((group) => (
-        <div key={group.id} className="flex flex-col gap-1">
-          <p className="px-2 font-medium text-2xs text-faint uppercase tracking-wide">
-            {group.title}
-          </p>
-          <ul className="flex flex-wrap gap-1">
-            {group.sections.map((section) => {
-              const active = pathname === section.href;
-              return (
-                <li key={section.href}>
-                  <Link
-                    href={section.href}
-                    aria-current={active ? 'page' : undefined}
-                    className={cn(
-                      'block rounded-md px-2 py-1 text-dense transition-colors duration-[var(--duration-fast)]',
-                      active
-                        ? 'bg-surface-2 font-medium text-text'
-                        : 'text-muted hover:bg-surface-2 hover:text-text',
-                    )}
-                  >
-                    {section.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ))}
-    </nav>
-  );
 }

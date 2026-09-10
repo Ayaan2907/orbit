@@ -13,6 +13,7 @@ import {
   or,
   schema,
   sql,
+  type Transaction,
 } from '@orbit/db';
 import type { NotificationEvent } from '@orbit/services/notifications';
 import type { DocAccessLevel } from '@orbit/shared/constants';
@@ -27,7 +28,7 @@ import { conflict, forbidden, notFound, validationFailed } from '@orbit/shared/e
 import type { Actor, SyncAction } from '@orbit/shared/events';
 import { scopes } from '@orbit/shared/events';
 import type { Principal } from '@orbit/shared/policy';
-import { assertCan, can, canReadDoc } from '@orbit/shared/policy';
+import { assertCan, canManageDocAccess, canReadDoc, canWriteDoc } from '@orbit/shared/policy';
 import {
   docUrl,
   HIGHLIGHT_END,
@@ -151,6 +152,46 @@ function docAction(
   });
 }
 
+async function docAudience(executor: Executor, doc: DocRow): Promise<string[]> {
+  const members = await executor
+    .select({ userId: schema.member.userId })
+    .from(schema.member)
+    .where(eq(schema.member.organizationId, doc.organizationId));
+  return [
+    ...(await docReaderIds(
+      executor,
+      doc,
+      members.map((member) => member.userId),
+    )),
+  ].map(scopes.user);
+}
+
+function accessChangedActions(
+  doc: DocRow,
+  syncId: number,
+  actor: Actor,
+  previousAudience: readonly string[],
+  audience: readonly string[],
+): SyncAction[] {
+  const current = new Set(audience);
+  const revoked = previousAudience.filter((scope) => !current.has(scope));
+  const action = (targets: string[], removed: boolean) =>
+    buildSyncAction({
+      syncId,
+      organizationId: doc.organizationId,
+      scopes: targets,
+      action: 'update',
+      model: 'doc',
+      modelId: doc.id,
+      data: { id: doc.id, accessChanged: true, revoked: removed },
+      actor,
+    });
+  return [
+    action([...new Set([scopes.doc(doc.id), ...audience])], false),
+    ...(revoked.length > 0 ? [action(revoked, true)] : []),
+  ];
+}
+
 function docAnnouncement(row: DocRow): Record<string, unknown> {
   const { content: _body, publishToken, ...rest } = row;
   return { ...rest, publishToken: publishToken === null ? null : 'redacted' };
@@ -161,34 +202,32 @@ function tokenFor(visibility: string, current: string | null): string | null {
   return current ?? newToken();
 }
 
-export function docReadFilter(principal: Principal): SQL {
-  if (principal.role === 'admin') return sql`true`;
-  const open = inArray(schema.doc.visibility, ['workspace', 'members', 'link', 'public']);
+function docGrantSubjectFilter(executor: Executor, principal: Principal): SQL | undefined {
+  return or(
+    and(eq(schema.docAccess.subjectType, 'user'), eq(schema.docAccess.subjectId, principal.userId)),
+    and(
+      eq(schema.docAccess.subjectType, 'team'),
+      inArray(
+        schema.docAccess.subjectId,
+        executor
+          .select({ teamId: schema.teamMember.teamId })
+          .from(schema.teamMember)
+          .where(eq(schema.teamMember.userId, principal.userId)),
+      ),
+    ),
+  );
+}
 
+export function docReadFilter(principal: Principal): SQL {
+  const open = inArray(schema.doc.visibility, ['workspace', 'members', 'link', 'public']);
   const grants = db
     .select({ docId: schema.docAccess.docId })
     .from(schema.docAccess)
-    .where(
-      or(
-        and(
-          eq(schema.docAccess.subjectType, 'user'),
-          eq(schema.docAccess.subjectId, principal.userId),
-        ),
-        principal.teamIds.length === 0
-          ? sql`false`
-          : and(
-              eq(schema.docAccess.subjectType, 'team'),
-              inArray(schema.docAccess.subjectId, [...principal.teamIds]),
-            ),
-      ),
-    );
-
-  const clause = or(
-    open,
-    eq(schema.doc.authorId, principal.userId),
-    inArray(schema.doc.id, grants),
+    .where(docGrantSubjectFilter(db, principal));
+  return (
+    or(open, eq(schema.doc.authorId, principal.userId), inArray(schema.doc.id, grants)) ??
+    sql`false`
   );
-  return clause ?? sql`false`;
 }
 
 async function grantedDocIds(
@@ -201,21 +240,7 @@ async function grantedDocIds(
     .select({ docId: schema.docAccess.docId })
     .from(schema.docAccess)
     .where(
-      and(
-        inArray(schema.docAccess.docId, [...docIds]),
-        or(
-          and(
-            eq(schema.docAccess.subjectType, 'user'),
-            eq(schema.docAccess.subjectId, principal.userId),
-          ),
-          principal.teamIds.length === 0
-            ? sql`false`
-            : and(
-                eq(schema.docAccess.subjectType, 'team'),
-                inArray(schema.docAccess.subjectId, [...principal.teamIds]),
-              ),
-        ),
-      ),
+      and(inArray(schema.docAccess.docId, [...docIds]), docGrantSubjectFilter(executor, principal)),
     );
   return rows.map((row) => row.docId);
 }
@@ -233,18 +258,7 @@ async function batchedWriteGrantedDocIds(
       and(
         inArray(schema.docAccess.docId, [...docIds]),
         eq(schema.docAccess.level, 'write'),
-        or(
-          and(
-            eq(schema.docAccess.subjectType, 'user'),
-            eq(schema.docAccess.subjectId, principal.userId),
-          ),
-          principal.teamIds.length === 0
-            ? sql`false`
-            : and(
-                eq(schema.docAccess.subjectType, 'team'),
-                inArray(schema.docAccess.subjectId, [...principal.teamIds]),
-              ),
-        ),
+        docGrantSubjectFilter(executor, principal),
       ),
     );
   return rows.map((row) => row.docId);
@@ -272,11 +286,7 @@ export function evaluateDocAccessLevel(
   doc: DocRow,
   hasWriteGrant: boolean,
 ): DocAccessLevel {
-  if (!can(principal, 'doc:write')) return 'read';
-  if (principal.role === 'admin') return 'write';
-  if (doc.authorId === principal.userId) return 'write';
-  if (!isRestricted(doc.visibility)) return 'write';
-  return hasWriteGrant ? 'write' : 'read';
+  return canWriteDoc(principal, doc, hasWriteGrant) ? 'write' : 'read';
 }
 
 export async function docAccessLevel(
@@ -345,11 +355,9 @@ async function assertDocsMovable(
   }
 }
 
-function assertMayWiden(principal: Principal, current: DocRow, next: string | undefined): void {
-  if (next === undefined) return;
-  if (!isRestricted(current.visibility) || isRestricted(next)) return;
-  if (principal.role === 'admin' || current.authorId === principal.userId) return;
-  throw forbidden('Only the author or an admin can widen who a doc is shared with.');
+function assertMayShare(principal: Principal, current: DocRow): void {
+  if (canManageDocAccess(principal, current)) return;
+  throw forbidden('Only the author can change sharing for this doc.');
 }
 
 export async function loadReadableDoc(
@@ -1159,7 +1167,7 @@ async function docChangeNotifications(
 export async function createDoc(principal: Principal, input: unknown): Promise<SavedDoc> {
   assertCan(principal, 'doc:write');
   const parsed = docCreateSchema.parse(input);
-  if (isPublished(parsed.visibility)) assertCan(principal, 'doc:publish');
+  if (isExternallyShared(parsed.visibility)) assertCan(principal, 'doc:publish');
 
   return await db.transaction(async (tx) => {
     await assertPlacement(tx, principal, parsed);
@@ -1310,6 +1318,23 @@ async function snapshotVersion(
   });
 }
 
+async function updatedDocActions(
+  executor: Executor,
+  current: DocRow,
+  doc: DocRow,
+  syncId: number,
+  actor: Actor,
+): Promise<SyncAction[]> {
+  if (current.visibility === doc.visibility) return [docAction(doc, syncId, actor, 'update')];
+  return accessChangedActions(
+    doc,
+    syncId,
+    actor,
+    await docAudience(executor, current),
+    await docAudience(executor, doc),
+  );
+}
+
 async function snapshotChangedDocVersion(
   tx: Executor,
   principal: Principal,
@@ -1320,6 +1345,14 @@ async function snapshotChangedDocVersion(
     await snapshotVersion(tx, principal, doc, null);
 }
 
+async function lockDocVisibilityUpdate(
+  tx: Transaction,
+  organizationId: string,
+  visibility: string | undefined,
+): Promise<void> {
+  if (visibility !== undefined) await lockNotificationPolicyMutation(tx, organizationId);
+}
+
 export async function updateDoc(
   principal: Principal,
   docId: string,
@@ -1327,17 +1360,16 @@ export async function updateDoc(
 ): Promise<SavedDoc> {
   assertCan(principal, 'doc:write');
   const parsed = docUpdateSchema.parse(input);
-  if (parsed.visibility !== undefined && isPublished(parsed.visibility)) {
+  if (parsed.visibility !== undefined && isExternallyShared(parsed.visibility)) {
     assertCan(principal, 'doc:publish');
   }
 
   return await db.transaction(async (tx) => {
-    if (parsed.visibility !== undefined)
-      await lockNotificationPolicyMutation(tx, principal.organizationId);
+    await lockDocVisibilityUpdate(tx, principal.organizationId, parsed.visibility);
     const current = await loadReadableDoc(tx, principal, docId);
     await assertDocWritable(tx, principal, current);
     if (current.archivedAt !== null) throw conflict('That doc is archived.');
-    assertMayWiden(principal, current, parsed.visibility);
+    if (parsed.visibility !== undefined) assertMayShare(principal, current);
     await assertPlacement(tx, principal, parsed, docId);
 
     const placement = touchesPlacement(parsed)
@@ -1400,7 +1432,7 @@ export async function updateDoc(
     return {
       doc,
       actions: [
-        docAction(doc, syncId, actor, 'update'),
+        ...(await updatedDocActions(tx, current, doc, syncId, actor)),
         ...descendants.map((row) => docAction(row, syncId, actor, 'update')),
         ...notifications,
       ],
@@ -1585,15 +1617,16 @@ export async function shareDoc(
 ): Promise<SharedDoc> {
   assertCan(principal, 'doc:write');
   const { visibility, rotateToken } = docShareSchema.parse(input);
-  if (isPublished(visibility)) assertCan(principal, 'doc:publish');
+  if (isExternallyShared(visibility)) assertCan(principal, 'doc:publish');
 
   return await db.transaction(async (tx) => {
     await lockNotificationPolicyMutation(tx, principal.organizationId);
     const current = await loadReadableDoc(tx, principal, docId);
     await assertDocWritable(tx, principal, current);
     if (current.archivedAt !== null) throw conflict('That doc is archived.');
-    assertMayWiden(principal, current, visibility);
+    assertMayShare(principal, current);
 
+    const previousAudience = await docAudience(tx, current);
     const publishToken = tokenFor(visibility, rotateToken ? null : current.publishToken);
     const syncId = await nextSyncId(tx);
     const actor = await principalActor(tx, principal);
@@ -1614,7 +1647,7 @@ export async function shareDoc(
       doc,
       publishToken,
       actions: [
-        docAction(doc, syncId, actor, 'update'),
+        ...accessChangedActions(doc, syncId, actor, previousAudience, await docAudience(tx, doc)),
         ...(await synchronizeDocumentNotificationAccess(
           tx,
           principal.organizationId,
@@ -1816,7 +1849,8 @@ export async function listDocAccess(
   docId: string,
 ): Promise<(typeof schema.docAccess.$inferSelect)[]> {
   assertCan(principal, 'doc:read');
-  await loadReadableDoc(db, principal, docId);
+  const doc = await loadReadableDoc(db, principal, docId);
+  assertMayShare(principal, doc);
   return await db
     .select()
     .from(schema.docAccess)
@@ -1875,9 +1909,7 @@ export async function setDocAccess(
   assertCan(principal, 'doc:write');
   const parsed = docAccessSetSchema.parse(input);
   const doc = await loadReadableDoc(db, principal, docId);
-  if (principal.role !== 'admin' && doc.authorId !== principal.userId) {
-    throw forbidden('Only the author or an admin can change who a doc is shared with.');
-  }
+  assertMayShare(principal, doc);
 
   const unique = new Map<string, DocAccessGrant>();
   for (const grant of parsed.grants) {
@@ -1887,6 +1919,8 @@ export async function setDocAccess(
 
   return await db.transaction(async (tx) => {
     await lockNotificationPolicyMutation(tx, principal.organizationId);
+    const previousAudience = await docAudience(tx, doc);
+
     await assertSubjectsInWorkspace(tx, principal.organizationId, grants);
     await tx.delete(schema.docAccess).where(eq(schema.docAccess.docId, docId));
     const syncId = await nextSyncId(tx);
@@ -1916,32 +1950,16 @@ export async function setDocAccess(
       .returning(DOC_COLUMNS);
     const row = requireRow(touched, 'That doc does not exist.');
     const actor = await principalActor(tx, principal);
-    const reach = [
-      ...docScopes(row),
-      ...grants.map((grant) =>
-        grant.subjectType === 'user' ? scopes.user(grant.subjectId) : scopes.team(grant.subjectId),
-      ),
-    ];
-
     return {
       grants: saved,
       actions: [
+        ...accessChangedActions(row, syncId, actor, previousAudience, await docAudience(tx, row)),
         ...(await synchronizeDocumentNotificationAccess(
           tx,
           principal.organizationId,
           docId,
           actor,
         )),
-        buildSyncAction({
-          syncId,
-          organizationId: principal.organizationId,
-          scopes: [...new Set(reach)],
-          action: 'update',
-          model: 'doc',
-          modelId: row.id,
-          data: docAnnouncement(row),
-          actor,
-        }),
       ],
     };
   });
