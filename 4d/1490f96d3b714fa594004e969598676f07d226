@@ -1,0 +1,20 @@
+packages/db/tests/migration-release.test.ts
+  s_f607e5a7ce23ce::t_3145a370a961e3 47-59,65
+  s_f607e5a7ce23ce::t_f1151ef5a2d825 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4d1490f96d3b714fa594004e969598676f07d226",
+  "prompts": {},
+  "sessions": {
+    "s_f607e5a7ce23ce": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3abad260-7c50-4de8-90dd-5653a802f69b",
+        "model": "grok-4.6"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
