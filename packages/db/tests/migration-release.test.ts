@@ -7,6 +7,7 @@ import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
+import { z } from 'zod';
 import { currentLane, laneDatabase } from '../../../scripts/test-env.ts';
 import { releaseDatabase } from '../src/migration-release.ts';
 
@@ -43,19 +44,25 @@ async function migrateScratch(): Promise<void> {
   });
 }
 
-interface JournalEntry {
-  readonly idx: number;
-  readonly version: string;
-  readonly when: number;
-  readonly tag: string;
-  readonly breakpoints: boolean;
-}
+const migrationJournalEntrySchema = z.object({
+  idx: z.number().int().nonnegative(),
+  version: z.string().min(1),
+  when: z.number().int().positive(),
+  tag: z.string().min(1),
+  breakpoints: z.boolean(),
+});
+
+const migrationJournalSchema = z.object({
+  version: z.string().min(1),
+  dialect: z.string().min(1),
+  entries: z.array(migrationJournalEntrySchema).min(1),
+});
 
 async function migrationsFolderWithTrailer(): Promise<string> {
   const folder = await mkdtemp(join(tmpdir(), 'orbit-release-'));
   await cp(MIGRATIONS, folder, { recursive: true });
   const journalPath = join(folder, 'meta', '_journal.json');
-  const journal = JSON.parse(await readFile(journalPath, 'utf8')) as { entries: JournalEntry[] };
+  const journal = migrationJournalSchema.parse(JSON.parse(await readFile(journalPath, 'utf8')));
   const last = journal.entries.at(-1);
   if (last === undefined) throw new Error('the migration journal has no entries to build on');
   const tag = '9999_release_reconcile_probe';
