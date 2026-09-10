@@ -300,3 +300,29 @@ describe('shortcuts overlay', () => {
     expect(scroll.scrollTop).toBe(0);
   });
 });
+
+describe('modified shortcut scrolling', () => {
+  for (const modifier of ['shiftKey', 'metaKey', 'ctrlKey', 'altKey'] as const) {
+    it(`preserves arrows with ${modifier}`, async () => {
+      render(
+        <HotkeyProvider>
+          <SeedManyShortcuts count={30} />
+          <ShortcutsOverlay open onOpenChange={noop} />
+        </HotkeyProvider>,
+      );
+      const scroll = await screen.findByTestId('shortcuts-scroll');
+      scroll.scrollTop = 80;
+      for (const key of ['ArrowUp', 'ArrowDown']) {
+        const event = new KeyboardEvent('keydown', {
+          key,
+          [modifier]: true,
+          bubbles: true,
+          cancelable: true,
+        });
+        fireEvent(scroll, event);
+        expect(scroll.scrollTop).toBe(80);
+        expect(event.defaultPrevented).toBe(false);
+      }
+    });
+  }
+});

@@ -59,7 +59,7 @@ export function ShortcutsOverlay({ open, onOpenChange }: ShortcutsOverlayProps) 
       <DialogContent
         className="flex max-h-[calc(100dvh-2rem)] max-w-md flex-col overflow-hidden"
         onKeyDown={(event) => {
-          if (event.metaKey || event.ctrlKey || event.altKey) return;
+          if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
           if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
           event.preventDefault();
           scrollByArrow(event.key);
