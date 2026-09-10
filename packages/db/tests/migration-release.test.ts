@@ -1,4 +1,7 @@
 import { afterAll, describe, expect, it } from 'bun:test';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -38,6 +41,34 @@ async function migrateScratch(): Promise<void> {
   await run(urlFor(SCRATCH), async (sql) => {
     await migrate(drizzle({ client: sql }), { migrationsFolder: MIGRATIONS });
   });
+}
+
+interface JournalEntry {
+  readonly idx: number;
+  readonly version: string;
+  readonly when: number;
+  readonly tag: string;
+  readonly breakpoints: boolean;
+}
+
+async function migrationsFolderWithTrailer(): Promise<string> {
+  const folder = await mkdtemp(join(tmpdir(), 'orbit-release-'));
+  await cp(MIGRATIONS, folder, { recursive: true });
+  const journalPath = join(folder, 'meta', '_journal.json');
+  const journal = JSON.parse(await readFile(journalPath, 'utf8')) as { entries: JournalEntry[] };
+  const last = journal.entries.at(-1);
+  if (last === undefined) throw new Error('the migration journal has no entries to build on');
+  const tag = '9999_release_reconcile_probe';
+  journal.entries.push({
+    idx: last.idx + 1,
+    version: last.version,
+    when: last.when + 1,
+    tag,
+    breakpoints: true,
+  });
+  await writeFile(journalPath, JSON.stringify(journal, null, 2));
+  await writeFile(join(folder, `${tag}.sql`), 'SELECT 1;\n');
+  return folder;
 }
 
 describe('database release', () => {
@@ -128,6 +159,60 @@ describe('database release', () => {
         sql`select convalidated from pg_constraint where conname = 'webhook_delivery_processing_claim_check'`,
     );
     expect([...rows]).toEqual([{ convalidated: true }]);
+  }, 60_000);
+
+  it('reconciles objects owned by already-applied migrations when a later migration is pending', async () => {
+    await resetScratch();
+    await migrateScratch();
+    await run(urlFor(SCRATCH), async (sql) => {
+      await sql`alter table webhook_delivery drop constraint webhook_delivery_processing_claim_check`;
+      await sql`drop trigger notification_deduplicated_target_trigger on notification`;
+      await sql`drop function validate_notification_deduplicated_target()`;
+      await sql`drop trigger notification_delivery_deduplicated_target_trigger on notification_delivery`;
+      await sql`drop function validate_notification_delivery_deduplicated_target()`;
+    });
+
+    const folder = await migrationsFolderWithTrailer();
+    let mode: string;
+    try {
+      const result = await releaseDatabase(urlFor(SCRATCH), folder);
+      mode = result.mode;
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+
+    const constraint = await run(
+      urlFor(SCRATCH),
+      (sql) =>
+        sql`select convalidated from pg_constraint where conname = 'webhook_delivery_processing_claim_check'`,
+    );
+    const triggers = await run(
+      urlFor(SCRATCH),
+      (sql) => sql<{ trigger_name: string; valid: boolean }[]>`
+        select
+          trigger.tgname as trigger_name,
+          trigger.tgdeferrable
+            and trigger.tginitdeferred
+            and trigger.tgenabled = 'O'
+            and trigger.tgconstraint <> 0 as valid
+        from pg_trigger trigger
+        inner join pg_class relation on relation.oid = trigger.tgrelid
+        inner join pg_namespace namespace on namespace.oid = relation.relnamespace
+        where namespace.nspname = 'public'
+          and trigger.tgname in (
+            'notification_deduplicated_target_trigger',
+            'notification_delivery_deduplicated_target_trigger'
+          )
+        order by trigger.tgname
+      `,
+    );
+
+    expect(mode).toBe('baselined');
+    expect([...constraint]).toEqual([{ convalidated: true }]);
+    expect([...triggers]).toEqual([
+      { trigger_name: 'notification_deduplicated_target_trigger', valid: true },
+      { trigger_name: 'notification_delivery_deduplicated_target_trigger', valid: true },
+    ]);
   }, 60_000);
 
   it('restores deferred audit triggers while baselining a schema-pushed catalog', async () => {
