@@ -153,6 +153,36 @@ describe('SettingsSidebar', () => {
     expect(keyboardFocusLink('Members')).toHaveAttribute('data-keyboard-focus', 'true');
   });
 
+  it('advances from the tab-focused link with arrows and j k', async () => {
+    mockViewport(true);
+    pathname.mockReturnValue('/settings/general');
+    const user = userEvent.setup();
+    renderSidebar(false, false);
+
+    await user.tab();
+
+    expect(keyboardFocusLink('Profile')).toHaveFocus();
+    expect(keyboardFocusLink('Profile')).toHaveAttribute('data-keyboard-focus', 'true');
+    expect(keyboardFocusLink('General')).not.toHaveAttribute('data-keyboard-focus');
+
+    await user.keyboard('{ArrowDown}');
+    expect(keyboardFocusLink('Connected accounts')).toHaveAttribute('data-keyboard-focus', 'true');
+    expect(keyboardFocusLink('Connected accounts')).toHaveFocus();
+    expect(keyboardFocusLink('Members')).not.toHaveAttribute('data-keyboard-focus');
+
+    await user.keyboard('j');
+    expect(keyboardFocusLink('Passkeys')).toHaveAttribute('data-keyboard-focus', 'true');
+    expect(keyboardFocusLink('Passkeys')).toHaveFocus();
+
+    await user.keyboard('{ArrowUp}');
+    expect(keyboardFocusLink('Connected accounts')).toHaveAttribute('data-keyboard-focus', 'true');
+    expect(keyboardFocusLink('Connected accounts')).toHaveFocus();
+
+    await user.keyboard('k');
+    expect(keyboardFocusLink('Profile')).toHaveAttribute('data-keyboard-focus', 'true');
+    expect(keyboardFocusLink('Profile')).toHaveFocus();
+  });
+
   it('focuses the target link so enter can activate it natively', async () => {
     mockViewport(true);
     pathname.mockReturnValue('/settings/general');

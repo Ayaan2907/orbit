@@ -11,6 +11,12 @@ function sectionIndex(sections: readonly SettingsSection[], pathname: string): n
   return index === -1 ? 0 : index;
 }
 
+function focusedLinkIndex(linkRefs: readonly (HTMLAnchorElement | null)[]): number {
+  const active = document.activeElement;
+  if (active === null) return -1;
+  return linkRefs.findIndex((ref) => ref === active);
+}
+
 export interface UseSettingsSidebarNavigationOptions {
   readonly passwordEnabled: boolean;
   readonly pathname: string;
@@ -42,10 +48,18 @@ export function useSettingsSidebarNavigation({
   const step = useCallback(
     (direction: 1 | -1) => {
       shouldFocusRef.current = true;
-      setFocusIndex((current) => Math.min(Math.max(current + direction, 0), sections.length - 1));
+      setFocusIndex((current) => {
+        const fromFocused = focusedLinkIndex(linkRefs.current);
+        const start = fromFocused === -1 ? current : fromFocused;
+        return Math.min(Math.max(start + direction, 0), sections.length - 1);
+      });
     },
     [sections.length],
   );
+
+  const onLinkFocus = useCallback((index: number) => {
+    setFocusIndex(index);
+  }, []);
 
   useHotkey('j', () => step(1), {
     label: 'Next settings section',
@@ -71,6 +85,7 @@ export function useSettingsSidebarNavigation({
   return {
     sections,
     focusIndex,
+    onLinkFocus,
     registerLinkRef,
   };
 }

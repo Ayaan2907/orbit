@@ -2,10 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useMemo } from 'react';
 import { cn } from '@/lib/cn.ts';
 import { tabHover } from '@/lib/interaction.ts';
-import { settingsGroupsFor, settingsSectionsFlat } from './settings-sections.ts';
+import { settingsGroupsFor } from './settings-sections.ts';
 import { useSettingsNav } from './use-settings-nav.ts';
 import { useSettingsSidebarNavigation } from './use-settings-sidebar-navigation.ts';
 
@@ -17,8 +16,7 @@ export function SettingsSidebar({ passwordEnabled = false }: SettingsSidebarProp
   const pathname = usePathname();
   const { open, close } = useSettingsNav();
   const groups = settingsGroupsFor(passwordEnabled);
-  const sections = useMemo(() => settingsSectionsFlat(passwordEnabled), [passwordEnabled]);
-  const { focusIndex, registerLinkRef } = useSettingsSidebarNavigation({
+  const { sections, focusIndex, onLinkFocus, registerLinkRef } = useSettingsSidebarNavigation({
     passwordEnabled,
     pathname,
   });
@@ -59,6 +57,7 @@ export function SettingsSidebar({ passwordEnabled = false }: SettingsSidebarProp
                       href={section.href}
                       aria-current={active ? 'page' : undefined}
                       data-keyboard-focus={focused ? 'true' : undefined}
+                      onFocus={() => onLinkFocus(index)}
                       onClick={close}
                       className={cn(
                         'block rounded-md px-2 py-1.5 text-dense outline-none focus-visible:bg-surface-2 focus-visible:font-medium focus-visible:text-text',
