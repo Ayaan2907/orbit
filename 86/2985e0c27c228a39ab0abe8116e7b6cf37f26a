@@ -1,0 +1,26 @@
+apps/web/src/features/settings/use-settings-sidebar-navigation.ts
+  s_8812c9e5012e19::t_7769e650ce6c1d 54-55
+  s_8812c9e5012e19::t_d570b8b28c3161 51-53
+apps/web/src/features/settings/settings-sidebar.tsx
+  s_8812c9e5012e19::t_c0154aa3b2a43c 19
+  s_8812c9e5012e19::t_a1cdf9ceec6f87 7
+apps/web/tests/features/settings/settings-sidebar.test.tsx
+  s_8812c9e5012e19::t_80158c0e0213df 157-168,176,178-179,184-185
+  s_8812c9e5012e19::t_a5f003ed49f5e5 156,169-175,177,180-183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "862985e0c27c228a39ab0abe8116e7b6cf37f26a",
+  "prompts": {},
+  "sessions": {
+    "s_8812c9e5012e19": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "be3cae11-7fe8-4aa0-9839-39e9ace432c0",
+        "model": "grok-4.6"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
