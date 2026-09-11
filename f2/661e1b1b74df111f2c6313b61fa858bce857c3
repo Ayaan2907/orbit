@@ -1,0 +1,26 @@
+apps/web/src/lib/auth/deployment.ts
+  s_1ae43b8de58196::t_38b682753fe548 41
+apps/web/tests/lib/auth/deployment.test.ts
+  s_1ae43b8de58196::t_b5295a4b29b54b 139-165
+  s_1ae43b8de58196::t_3d9409324c30a5 127
+  s_1ae43b8de58196::t_525224721d71c9 5
+  s_1ae43b8de58196::t_1634f8935b751f 213-215
+docs/preview-authentication.md
+  s_1ae43b8de58196::t_fa04eaa7269f10 10-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f2661e1b1b74df111f2c6313b61fa858bce857c3",
+  "prompts": {},
+  "sessions": {
+    "s_1ae43b8de58196": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "646452ed-7d3c-4b1c-bd9e-b9770f08d6a9",
+        "model": "grok-4.6"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
