@@ -1,0 +1,19 @@
+apps/web/tests/lib/auth/deployment.test.ts
+  s_1ae43b8de58196::t_cc19e9cf14bacc 153,158,163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "976affc1ec5878f2e911b3238b9375a89998264a",
+  "prompts": {},
+  "sessions": {
+    "s_1ae43b8de58196": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "646452ed-7d3c-4b1c-bd9e-b9770f08d6a9",
+        "model": "grok-4.6"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
