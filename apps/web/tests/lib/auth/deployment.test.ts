@@ -150,17 +150,17 @@ describe('deployment authentication', () => {
     });
 
     const withoutRequest = await auth.api.getMcpOAuthConfig();
-    expect(withoutRequest.issuer).toBe(canonical);
+    expect(withoutRequest?.issuer).toBe(canonical);
 
     const previewHost = await auth.api.getMcpOAuthConfig({
       headers: new Headers({ host: new URL(preview).host }),
     });
-    expect(previewHost.issuer).toBe(preview);
+    expect(previewHost?.issuer).toBe(preview);
 
     const unknownHost = await auth.api.getMcpOAuthConfig({
       headers: new Headers({ host: 'attacker.example' }),
     });
-    expect(unknownHost.issuer).toBe(canonical);
+    expect(unknownHost?.issuer).toBe(canonical);
   });
 
   it('ignores empty optional deployment values in local configuration', () => {
