@@ -49,7 +49,7 @@ Connection options such as `sslmode=require` remain in `DATABASE_URL`.
 
 | Variable | Notes |
 | --- | --- |
-| `CRON_SECRET` | Protects the scheduled sprint snapshot, operational pruning, and notification worker routes. Use a long random value in every deployed environment |
+| `CRON_SECRET` | Protects the scheduled sprint rollover, sprint snapshot, operational pruning, and notification worker routes. Use a long random value in every deployed environment |
 | `NOTIFICATION_PROVIDERS_PAUSED` | Set `true` to stop Slack and notification-email claims during migration or incident response. Defaults to false |
 | `NOTIFICATION_CONVERSATIONS_ENABLED` | Set `true` after conversation backfill and verification to select the grouped inbox. False or unset retains the legacy view |
 
@@ -59,6 +59,36 @@ worker runs every minute. Slack delivery additionally requires
 `SLACK_ENABLED=true`; notification email requires Resend configuration.
 Pausing providers preserves queued work and still allows GitHub reconciliation
 and snooze wakes. See [Inbox conversations](features/inbox.md) for rollout order.
+The sprint rollover route runs every minute. It closes expired sprints and moves
+unfinished committed tasks into the next scheduled sprint, creating a successor
+with the same duration if needed. Completed and canceled tasks retain their sprint;
+triage and backlog tasks return to the backlog, matching manual completion.
+Missed boundaries are processed oldest first, up to 100 completions per invocation.
+Repeated or overlapping invocations do not close a sprint twice. Task assignment
+menus and filters show current and future sprints, with the active one labeled
+Current sprint. The Current sprint filter stores a relative selection, so saved
+views follow the active sprint when the calendar advances. Open pages refresh
+sprint choices, facet counts, and relative sprint results within a minute, and
+refresh stale workspace data when the window regains focus. Sprint history
+remains available from the Sprints page.
+
+New workspaces and newly created sprints default to seven days. Explicit dates
+remain supported, and existing sprint dates are not rewritten. A workspace that
+already has two-week sprints keeps that schedule until its dates are edited.
+To change an existing schedule, edit the sprint dates from the Sprints page and
+use **Move later sprints by the same amount** when later windows must move too.
+The rollover job uses stored dates, not the sprint number or a calendar-week
+number.
+
+If a menu shows Current sprint (Sprint 1) but omits Sprint 2, inspect the stored
+windows and completion state on the Sprints page or the authenticated
+`/api/cycles` response. Current means `startsAt <= now < endsAt` and not completed;
+expired or completed sprints are excluded from assignment menus, and archived
+records are excluded from workspace data. A missing number alone does not prove
+that rollover failed. Check the Vercel cron invocation logs for
+`/api/cron/sprint-rollover` to verify execution. An unauthenticated 401 confirms
+route protection, not a successful scheduled run. Correct the dates or completion
+state only after establishing why that specific sprint was excluded.
 The analytics route runs every six hours so every sprint-local
 calendar day is observed across timezone and daylight-saving changes. It records
 one row per active sprint and local day, then publishes the returned realtime
