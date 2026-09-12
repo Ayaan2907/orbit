@@ -34,6 +34,19 @@ Press <kbd>g</kbd>, release it, then press the second key.
 | <kbd>g</kbd> <kbd>v</kbd> | Views |
 | <kbd>g</kbd> <kbd>a</kbd> | Analytics |
 | <kbd>g</kbd> <kbd>d</kbd> | Docs |
+| <kbd>g</kbd> <kbd>e</kbd> | Settings |
+
+## Settings
+
+On any settings page, move through the sidebar with the keyboard.
+
+| Keys | Does |
+| --- | --- |
+| <kbd>j</kbd> or <kbd>Down</kbd> | Next section |
+| <kbd>k</kbd> or <kbd>Up</kbd> | Previous section |
+| <kbd>Enter</kbd> | Open the focused section (native link activation) |
+
+Account sections come first, then workspace sections, in the same order as the sidebar.
 
 ## Issues
 
@@ -141,12 +154,14 @@ work in an input, because you always need a way out.
 
 ## Standup member switching
 
-| Shortcut | Action |
-| --- | --- |
-| Option + Tab | Next member |
-| Option + Shift + Tab | Previous member |
+| macOS | Windows / Linux | Action |
+| --- | --- | --- |
+| Option + Tab | Alt + J | Next member |
+| Option + Shift + Tab | Alt + K | Previous member |
 
-Hold Option to keep the member dropdown open while switching. Release Option to close it and keep the current selection. On keyboards that label the modifier Alt, use Alt. The operating system may reserve Alt+Tab; the member dropdown remains available by mouse and ordinary keyboard navigation.
+Member cards are shown by default with first names; hover a card for the full name. The dropdown shows full names to distinguish members with the same first name. Open **Display options** and choose **Cards** or **Dropdown** under the **Members** section to change the layout. Your choice is remembered for your account in this browser. Changing layouts keeps the selected member and board filters.
+
+The shortcuts work in both layouts and immediately filter the board. Switching wraps through All Members, the team members, and Unassigned when available. In dropdown mode, hold Option or Alt to keep the picker open and release it to close; cards remain visible in card mode. Hover the member group or dropdown button for your platform's shortcuts. Alt+Tab is left to the window switcher on Windows/Linux.
 
 ## Adding one
 
