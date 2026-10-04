@@ -1,0 +1,22 @@
+apps/web/e2e/issue-detail-mobile.spec.ts
+  s_4cbcbc6e874075::t_ffef57e5fa8202 68-70
+  s_4cbcbc6e874075::t_01369214bc9940 1-67,71-127
+apps/web/src/features/issues/issue-detail.tsx
+  s_4cbcbc6e874075::t_301a88e80bad17 288-292
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f7193592de3dcb2d554f88a0579a8640f583a40b",
+  "prompts": {},
+  "sessions": {
+    "s_4cbcbc6e874075": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d0ed9615-14d2-4df9-9bf2-89a6e628cc7e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
