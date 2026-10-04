@@ -1,0 +1,29 @@
+apps/web/src/app/(app)/issue/[identifier]/page.tsx
+  s_d00b8a0e20f499::t_eacb34d266a45e 1,4,11-12
+apps/web/src/app/(app)/projects/[slug]/layout.tsx
+  s_d00b8a0e20f499::t_ee5839edc704f9 5,14,21-25,28-32,37
+apps/web/src/app/(app)/views/[id]/page.tsx
+  s_d00b8a0e20f499::t_56f7cafd021afe 8,33
+apps/web/tests/app/(app)/issue/[identifier]/page.test.ts
+  s_d00b8a0e20f499::t_b7ac9863fe83d0 1-13
+apps/web/tests/app/(app)/projects/[slug]/layout.test.ts
+  s_d00b8a0e20f499::t_bc375c86594684 1-54
+apps/web/tests/app/(app)/views/[id]/page.test.ts
+  s_d00b8a0e20f499::t_4f0350094b0cd8 1-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a8bc575df740775b92a12d3f4419d61b5ac496fd",
+  "prompts": {},
+  "sessions": {
+    "s_d00b8a0e20f499": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "192e6e38-4b67-402c-b6a3-6ab566595ae1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
