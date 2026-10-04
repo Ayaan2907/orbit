@@ -12,6 +12,21 @@ https://orbit.example.com/mcp
 
 There is nothing extra to run. The MCP server is part of the app.
 
+The hosted Orbit connection is `https://orbit.noveum.ai/mcp`. You can also find
+its client setup in the [Claude Code Marketplace Orbit listing](https://www.claudemarketplace.net/mcp/orbit).
+
+## Directory discovery
+
+`/.well-known/mcp.json` publishes the deployment's remote endpoint and OAuth
+requirement for directories such as MCPub. It follows `NEXT_PUBLIC_APP_URL` and
+the optional `NEXT_PUBLIC_MCP_URL` override. It is discovery metadata, not a
+connection endpoint or an authorization grant.
+
+The hosted Noveum origin also serves `/.well-known/glama.json` as public
+ownership proof. Self-hosted deployments and preview hosts return 404 for that
+claim, so they do not advertise Noveum's directory ownership. Glama still needs
+a separate authenticated test profile to check an OAuth-protected workspace.
+
 ## How access works
 
 **OAuth only. There are no API keys**, and there will not be.
@@ -159,6 +174,8 @@ and Orbit resolves them.
 | `list_my_issues` | read | Assigned to the caller or awaiting their review |
 | `copy_branch_name` | read | The git branch name for an issue |
 | `create_issue` | write | Create one with assignee and reviewers, returns `ENG-42`. Name a label by id when two share a name |
+| `create_sub_issues` | write | Create up to 50 sub-issues in one call under a parent issue |
+| `bulk_update_issues` | write | Update state, assignee, labels, priority, sprint or project across up to 50 issues |
 | `update_issue` | write | Title, description, state, priority, assignee, reviewers, labels, estimate |
 | `move_issue` | write | Move between states or teams. A team move drops the labels the new team cannot use |
 | `add_comment` | write | Comment |

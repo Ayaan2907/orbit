@@ -22,9 +22,10 @@ import {
 } from '@/features/docs/editor/rich-text-editor.tsx';
 import { assertUploadable, uploadAttachment } from '@/features/docs/upload.ts';
 import { messageOf } from '@/lib/query/fetcher.ts';
-import type { Cycle, Issue, Project } from '@/lib/query/schemas.ts';
+import type { Cycle, Issue, Project, WorkflowState } from '@/lib/query/schemas.ts';
 import { useDuplicateIssues } from '@/lib/query/use-duplicate-issues.ts';
 import { useCreateIssue, useUpdateIssue } from '@/lib/query/use-issues.ts';
+import { sprintOptions } from '@/lib/sprint-options.ts';
 import { DuplicateSuggestions } from './duplicate-suggestions.tsx';
 import { EstimateGlyph, estimateLabel } from './estimate-glyph.tsx';
 import {
@@ -43,6 +44,7 @@ export interface QuickCreateDialogProps {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly defaultTeamId: string | null;
+  readonly defaultStateId?: string | null;
 }
 
 const chipClassName =
@@ -56,6 +58,14 @@ function pendingLabel(count: number): string {
 function reviewersLabel(count: number): string {
   if (count === 0) return 'Reviewers';
   return `${count} reviewer${count === 1 ? '' : 's'}`;
+}
+
+function initialState(
+  states: readonly WorkflowState[],
+  teamId: string | null,
+  defaultStateId: string | null | undefined,
+): string | null {
+  return statesForTeam(states, teamId).find((state) => state.id === defaultStateId)?.id ?? null;
 }
 
 function compatibleTeamId(
@@ -141,9 +151,9 @@ function ScopePickers({
             label: cycles.length === 0 ? 'No sprints yet' : 'No sprint',
             icon: <RefreshCw className="size-3.5 text-muted" aria-hidden="true" />,
           },
-          ...cycles.map((cycle) => ({
+          ...sprintOptions(cycles).map((cycle) => ({
             id: cycle.id,
-            label: sprintLabel(cycle),
+            label: cycle.label,
             icon: <RefreshCw className="size-3.5 text-muted" aria-hidden="true" />,
           })),
         ]}
@@ -162,7 +172,12 @@ function ScopePickers({
   );
 }
 
-export function QuickCreateDialog({ open, onOpenChange, defaultTeamId }: QuickCreateDialogProps) {
+export function QuickCreateDialog({
+  open,
+  onOpenChange,
+  defaultTeamId,
+  defaultStateId,
+}: QuickCreateDialogProps) {
   const { teams, states, members, labels, projects, cycles, ready } = useWorkspace();
   const { toast } = useToast();
   const firstTeamId =
@@ -192,8 +207,9 @@ export function QuickCreateDialog({ open, onOpenChange, defaultTeamId }: QuickCr
   const create = useCreateIssue(teamId ?? 'none');
   const update = useUpdateIssue();
 
-  const defaultsRef = useRef(firstTeamId);
-  defaultsRef.current = firstTeamId;
+  const firstStateId = initialState(states, firstTeamId, defaultStateId);
+  const defaultsRef = useRef({ teamId: firstTeamId, stateId: firstStateId });
+  defaultsRef.current = { teamId: firstTeamId, stateId: firstStateId };
   const heldRef = useRef<readonly PendingAttachment[]>(pending);
   heldRef.current = pending;
 
@@ -203,10 +219,10 @@ export function QuickCreateDialog({ open, onOpenChange, defaultTeamId }: QuickCr
       setPending([]);
       return;
     }
-    setTeamId(defaultsRef.current);
+    setTeamId(defaultsRef.current.teamId);
     setTitle('');
     setDescription('');
-    setStateId(null);
+    setStateId(defaultsRef.current.stateId);
     setPriority(0);
     setAssigneeId(null);
     setReviewerIds([]);
@@ -389,6 +405,7 @@ export function QuickCreateDialog({ open, onOpenChange, defaultTeamId }: QuickCr
               ref={titleRef}
               autoFocus
               data-testid="quick-create-title"
+              aria-label="Issue title"
               placeholder="Issue title"
               value={title}
               onChange={(event) => {
@@ -400,7 +417,7 @@ export function QuickCreateDialog({ open, onOpenChange, defaultTeamId }: QuickCr
                 if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey)
                   event.preventDefault();
               }}
-              className="h-9 shrink-0 border-0 px-0 font-medium text-base shadow-none"
+              className="h-9 shrink-0 border-0 bg-transparent px-0 font-medium text-base shadow-none outline-none"
             />
             {!dismissedDuplicates && duplicates.length > 0 ? (
               <DuplicateSuggestions

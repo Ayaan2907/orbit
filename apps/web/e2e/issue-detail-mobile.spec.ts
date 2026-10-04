@@ -6,6 +6,8 @@ import { BASE } from './base-url.ts';
 const PHONE = { width: 390, height: 780 };
 const DESKTOP = { width: 1440, height: 900 };
 
+const FIRST_PARAGRAPH = 'Paragraph 0 of a description taller than any phone viewport.';
+
 const LONG_DESCRIPTION = Array.from(
   { length: 40 },
   (_, index) => `Paragraph ${index} of a description taller than any phone viewport.`,
@@ -54,7 +56,7 @@ async function panesOf(page: Page, within: string): Promise<Panes> {
   return await page.evaluate((selector) => {
     const root = document.querySelector(`${selector} [data-testid=issue-detail]`);
     if (root === null) throw new Error(`no issue detail inside ${selector}`);
-    const main = root.firstElementChild;
+    const main = root.querySelector('[data-testid=issue-detail-main]');
     if (main === null) throw new Error('the issue detail rendered no main column');
     return {
       mainClientHeight: main.clientHeight,
@@ -76,7 +78,8 @@ test('the issue body is readable on a phone rather than clipped to nothing', asy
 
   await page.goto(`${BASE}/issue/${issue.identifier}`);
   await expect(page.getByTestId('issue-detail')).toBeVisible();
-  await expect(page.getByText('An issue read on a phone').first()).toBeVisible();
+  await expect(page.getByTestId('issue-title')).toHaveValue('An issue read on a phone');
+  await expect(page.getByText(FIRST_PARAGRAPH)).toBeVisible();
 
   const panes = await panesOf(page, 'body');
   expect(panes.mainClientHeight, 'the main column collapsed').toBeGreaterThan(0);
@@ -93,11 +96,16 @@ test('the peek panel shows the issue body on a phone', async ({ browser }) => {
   const page = await signIn(context, 'alex@orbit.example');
 
   const teamId = await teamIdByKey(page, 'ENG');
-  await createDescribedIssue(page, teamId, 'An issue peeked on a phone');
+  const issue = await createDescribedIssue(page, teamId, 'An issue peeked on a phone');
 
   await page.goto(`${BASE}/team/eng/issues`);
-  await page.locator('[data-testid^=issue-row-] a').first().click();
-  await expect(page.getByTestId('issue-peek')).toBeVisible();
+  const row = page.getByTestId(`issue-row-${issue.identifier}`);
+  await expect(row).toBeVisible();
+  await row.getByRole('link').first().click();
+
+  const peek = page.getByTestId('issue-peek');
+  await expect(peek).toHaveAttribute('aria-label', `Peek ${issue.identifier}`);
+  await expect(peek.getByText(FIRST_PARAGRAPH)).toBeVisible();
 
   const panes = await panesOf(page, '[data-testid=issue-peek]');
   expect(panes.mainClientHeight, 'the peek main column collapsed').toBeGreaterThan(0);

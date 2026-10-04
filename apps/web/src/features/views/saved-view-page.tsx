@@ -159,6 +159,7 @@ function SavedViewBody({ view }: { view: View }) {
       />
 
       <SavedViewContent
+        creationScope={scope.query}
         boardVisibilityKey={boardVisibility.key}
         resolveState={resolveState}
         columnSource={columnSource}
@@ -172,7 +173,7 @@ function SavedViewBody({ view }: { view: View }) {
         keepBoardMounted={boardVisibility.held}
         onVisibilityActivityStart={boardVisibility.start}
         loading={issues.isPending}
-        failed={issues.isError}
+        failed={issues.isLoadingError}
         onRetry={() => {
           issues.refetch().catch(() => undefined);
         }}
@@ -199,6 +200,7 @@ function SavedViewBody({ view }: { view: View }) {
 }
 
 interface SavedViewContentProps {
+  readonly creationScope: Readonly<Record<string, string>>;
   readonly boardVisibilityKey: string;
   readonly resolveState: StateResolver;
   readonly columnSource: BoardColumnSource | undefined;
@@ -220,6 +222,7 @@ interface SavedViewContentProps {
 }
 
 function SavedViewContent({
+  creationScope,
   boardVisibilityKey,
   resolveState,
   columnSource,
@@ -269,6 +272,7 @@ function SavedViewContent({
     return (
       <div className="min-h-0 flex-1 overflow-hidden" data-testid="saved-view-board">
         <Board
+          creationScope={creationScope}
           key={boardVisibilityKey}
           groups={groups}
           draggable={canDrag}

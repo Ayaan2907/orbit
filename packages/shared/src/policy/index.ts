@@ -4,6 +4,7 @@ import { forbidden, notFound } from '../errors/index.ts';
 export const PERMISSIONS = [
   'analytics:read',
   'issue:read',
+  'standup:read',
   'issue:create',
   'issue:update',
   'issue:delete',
@@ -35,6 +36,7 @@ export type Permission = (typeof PERMISSIONS)[number];
 const GUEST_PERMISSIONS: readonly Permission[] = [
   'analytics:read',
   'issue:read',
+  'standup:read',
   'comment:create',
   'comment:update:own',
   'reaction:toggle',
@@ -109,6 +111,14 @@ export function assertCan(principal: Principal, permission: Permission): void {
     throw forbidden(`Your role cannot ${permission.replace(':', ' ')}.`, {
       details: { permission, role: principal.role },
     });
+  }
+}
+
+export function assertVerifiedEmailForInvitation(emailVerified: boolean): void {
+  if (!emailVerified) {
+    throw forbidden(
+      'Verify your email before joining a workspace. Sign in with an emailed code, then accept the invitation again.',
+    );
   }
 }
 

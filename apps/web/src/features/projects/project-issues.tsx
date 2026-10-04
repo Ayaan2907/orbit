@@ -119,6 +119,7 @@ export function ProjectIssues({ projectId, projectName }: ProjectIssuesProps) {
       />
 
       <ProjectIssueBody
+        creationScope={scope}
         boardVisibilityKey={boardVisibility.key}
         model={model}
         layout={layout}
@@ -128,7 +129,7 @@ export function ProjectIssues({ projectId, projectName }: ProjectIssuesProps) {
         columnSource={columnSource}
         canDrag={canDrag}
         loading={issues.isPending}
-        failed={issues.isError}
+        failed={issues.isLoadingError}
         onRetry={() => {
           issues.refetch().catch(() => undefined);
         }}
@@ -148,6 +149,7 @@ export function ProjectIssues({ projectId, projectName }: ProjectIssuesProps) {
 }
 
 interface BodyProps {
+  readonly creationScope: Readonly<Record<string, string>>;
   readonly boardVisibilityKey: string;
   readonly model: IssueViewModel;
   readonly columnSource: BoardColumnSource | undefined;
@@ -170,6 +172,7 @@ interface BodyProps {
 }
 
 function ProjectIssueBody({
+  creationScope,
   boardVisibilityKey,
   model,
   columnSource,
@@ -226,6 +229,7 @@ function ProjectIssueBody({
   if (layout === 'board') {
     return (
       <Board
+        creationScope={creationScope}
         key={boardVisibilityKey}
         groups={model.groups}
         draggable={canDrag}

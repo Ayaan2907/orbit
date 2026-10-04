@@ -136,8 +136,8 @@ function buildWorkspace(): WorkspaceData {
         teamId: 'team_eng',
         number: 3,
         name: '',
-        startsAt: '2026-08-01T00:00:00.000Z',
-        endsAt: '2026-08-14T00:00:00.000Z',
+        startsAt: new Date(Date.now() + 86_400_000).toISOString(),
+        endsAt: new Date(Date.now() + 14 * 86_400_000).toISOString(),
         completedAt: null,
       },
     ],
@@ -286,6 +286,48 @@ async function holdOneFile(): Promise<void> {
 async function settle(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 50));
 }
+
+describe('creating from a board column', () => {
+  it('submits the supplied status for its team', async () => {
+    workspace = buildWorkspace();
+    render(
+      <ToastProvider>
+        <QuickCreateDialog
+          open
+          onOpenChange={() => undefined}
+          defaultTeamId="team_eng"
+          defaultStateId="state_todo"
+        />
+      </ToastProvider>,
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: 'Issue title' }), {
+      target: { value: 'Created in Todo' },
+    });
+    fireEvent.click(screen.getByTestId('quick-create-submit'));
+    await waitFor(() => expect(created).toHaveBeenCalled());
+    expect(created.mock.calls[0]?.[0]).toMatchObject({ stateId: 'state_todo' });
+  });
+
+  it('ignores a supplied status from an unavailable team', async () => {
+    workspace = buildWorkspace();
+    render(
+      <ToastProvider>
+        <QuickCreateDialog
+          open
+          onOpenChange={() => undefined}
+          defaultTeamId="team_eng"
+          defaultStateId="foreign_state"
+        />
+      </ToastProvider>,
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: 'Issue title' }), {
+      target: { value: 'Uses the team default' },
+    });
+    fireEvent.click(screen.getByTestId('quick-create-submit'));
+    await waitFor(() => expect(created).toHaveBeenCalled());
+    expect(created.mock.calls[0]?.[0]).not.toHaveProperty('stateId');
+  });
+});
 
 describe('attaching a file from the create dialog', () => {
   it('offers the file picker even though the issue does not exist yet', () => {
@@ -742,6 +784,17 @@ describe('the new issue dialog', () => {
     expect(screen.getByTestId('quick-create-title').className).toContain('shrink-0');
   });
 
+  it('renders the title input seamlessly without border or outline to avoid overflow', () => {
+    workspace = buildWorkspace();
+    open();
+
+    const titleInput = screen.getByTestId('quick-create-title');
+    expect(titleInput.className).toContain('border-0');
+    expect(titleInput.className).toContain('outline-none');
+    expect(titleInput.className).toContain('bg-transparent');
+    expect(titleInput.className).not.toContain('focus-visible:outline-none');
+  });
+
   it('shows no formatting toolbar above the description, the way Linear does not', () => {
     workspace = buildWorkspace();
     open();
@@ -844,6 +897,32 @@ describe('the pickers when the workspace owns nothing yet', () => {
     await user.click(screen.getByTestId('quick-create-project'));
 
     expect(await screen.findByText('No projects in this workspace')).toBeTruthy();
+  });
+
+  it('offers the current sprint and hides expired sprints when creating a task', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const base = buildWorkspace();
+    const cycle = base.cycles[0];
+    if (cycle === undefined) throw new Error('missing test sprint');
+    workspace = {
+      ...base,
+      cycles: [
+        {
+          ...cycle,
+          id: 'expired',
+          name: 'Previous sprint',
+          startsAt: new Date(Date.now() - 14 * 86_400_000).toISOString(),
+          endsAt: new Date(Date.now() - 1).toISOString(),
+        },
+        { ...cycle, startsAt: new Date(Date.now() - 86_400_000).toISOString() },
+      ],
+    };
+    open();
+    await user.click(screen.getByTestId('quick-create-cycle'));
+    expect(await screen.findByText('Current sprint (Sprint 3)')).toBeTruthy();
+    expect(screen.queryByText('Previous sprint')).toBeNull();
+    await user.click(screen.getByText('Current sprint (Sprint 3)'));
+    expect(screen.getByTestId('quick-create-cycle').textContent).toContain('Sprint 3');
   });
 
   it('says the workspace has no sprints rather than showing an empty menu', async () => {

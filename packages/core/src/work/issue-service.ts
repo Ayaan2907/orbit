@@ -8,7 +8,7 @@ import {
   REBALANCE_THRESHOLD,
   SORT_ORDER_STEP,
 } from '@orbit/shared/constants';
-import { conflict, notFound, validationFailed } from '@orbit/shared/errors';
+import { conflict, DomainError, notFound, validationFailed } from '@orbit/shared/errors';
 import type { Actor, SyncAction } from '@orbit/shared/events';
 import { scopes } from '@orbit/shared/events';
 import { UNSET_FILTER_VALUE } from '@orbit/shared/filters';
@@ -22,15 +22,20 @@ import {
   truncate,
 } from '@orbit/shared/utils';
 import {
+  createSubIssuesSchema,
   duplicateIssueQuerySchema,
+  type IssueExpectedProperties,
+  type IssueFilterInput,
   issueBulkUpdateSchema,
   issueCreateSchema,
   issueFilterSchema,
+  issueMarkDuplicateSchema,
   issueMoveSchema,
   issueRelationSchema,
   issueSummaryQuerySchema,
   issueUpdateSchema,
   paginationSchema,
+  type subIssueItemSchema,
 } from '@orbit/shared/validators';
 import { getTableColumns, type SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
@@ -187,6 +192,22 @@ async function allocateIssueNumber(executor: Executor, team: TeamRow): Promise<n
     .returning({ issueCounter: schema.team.issueCounter });
   if (row === undefined) throw notFound('That team does not exist.');
   return row.issueCounter;
+}
+
+async function allocateIssueNumbers(
+  executor: Executor,
+  team: TeamRow,
+  count: number,
+): Promise<number[]> {
+  const [row] = await executor
+    .update(schema.team)
+    .set({ issueCounter: sql`${schema.team.issueCounter} + ${count}` })
+    .where(and(eq(schema.team.id, team.id), eq(schema.team.organizationId, team.organizationId)))
+    .returning({ issueCounter: schema.team.issueCounter });
+  if (row === undefined) throw notFound('That team does not exist.');
+  const end = row.issueCounter;
+  const start = end - count + 1;
+  return Array.from({ length: count }, (_, index) => start + index);
 }
 
 async function topOfColumn(executor: Executor, teamId: string, stateId: string): Promise<number> {
@@ -673,12 +694,17 @@ async function assertCycleInWorkspace(
       id: schema.cycle.id,
       completedAt: schema.cycle.completedAt,
       archivedAt: schema.cycle.archivedAt,
+      endsAt: schema.cycle.endsAt,
     })
     .from(schema.cycle)
     .where(and(eq(schema.cycle.id, cycleId), eq(schema.cycle.organizationId, organizationId)))
     .limit(1);
   const cycle = requireRow(row, 'That sprint does not exist.');
-  if (cycle.completedAt !== null || cycle.archivedAt !== null) {
+  if (
+    cycle.completedAt !== null ||
+    cycle.archivedAt !== null ||
+    cycle.endsAt.getTime() <= Date.now()
+  ) {
     throw validationFailed('That sprint is no longer open.');
   }
 }
@@ -923,6 +949,169 @@ export async function createIssue(principal: Principal, input: unknown): Promise
   });
 }
 
+interface SubIssueContext {
+  readonly tx: Executor;
+  readonly principal: Principal;
+  readonly team: TeamRow;
+  readonly parent: IssueRow;
+  readonly defaultState: Awaited<ReturnType<typeof initialStateFor>>;
+  readonly syncId: number;
+  readonly actor: Actor;
+  readonly now: Date;
+}
+
+async function insertSubIssue(
+  context: SubIssueContext,
+  item: z.infer<typeof subIssueItemSchema>,
+  number: number,
+): Promise<{ issue: IssueRow; actions: SyncAction[] }> {
+  const { tx, principal, team, parent, defaultState, syncId, actor, now } = context;
+  const state = item.stateId === undefined ? defaultState : await stateOf(tx, item.stateId);
+  if (state.teamId !== team.id) {
+    throw validationFailed('That status belongs to another team.');
+  }
+  const assigneeId = item.assigneeId === undefined ? principal.userId : item.assigneeId;
+  const reviewerIds = [...new Set(item.reviewerIds)].sort();
+  if (assigneeId !== null) {
+    await assertMemberOfWorkspace(tx, principal.organizationId, assigneeId);
+  }
+  await assertReviewersCanAccessTeam(tx, principal.organizationId, team.id, reviewerIds);
+  await assertAssignableToTeam(tx, principal.organizationId, team.id, {
+    cycleId: item.cycleId ?? null,
+    projectId: item.projectId ?? null,
+    milestoneId: item.milestoneId ?? null,
+  });
+  await assertLabelsUsable(tx, principal.organizationId, team.id, item.labelIds);
+
+  const id = newId();
+  const [created] = await tx
+    .insert(schema.issue)
+    .values({
+      id,
+      organizationId: principal.organizationId,
+      teamId: team.id,
+      number,
+      identifier: issueIdentifier(team.key, number),
+      title: item.title,
+      description: item.description,
+      stateId: state.id,
+      priority: item.priority,
+      creatorId: principal.userId,
+      assigneeId,
+      projectId: item.projectId ?? null,
+      milestoneId: item.milestoneId ?? null,
+      cycleId: item.cycleId ?? null,
+      parentId: parent.id,
+      estimate: item.estimate,
+      dueDate: toDateString(item.dueDate) ?? null,
+      sortOrder: await topOfColumn(tx, team.id, state.id),
+      ...stateTimestamps(state.category, now),
+      syncId,
+    })
+    .returning();
+  const issue = requireRow(created, 'The issue could not be created.');
+
+  await captureCreatedCycleMembership(tx, { issue, occurredAt: now });
+  await replaceLabels(tx, issue.id, item.labelIds);
+  await replaceReviewersFor(tx, [issue.id], reviewerIds);
+  await subscribeUsers(
+    tx,
+    issue.id,
+    [principal.userId, ...(assigneeId ? [assigneeId] : []), ...reviewerIds],
+    syncId,
+  );
+  await appendActivities(tx, [
+    {
+      organizationId: principal.organizationId,
+      issueId: issue.id,
+      actor,
+      field: 'created',
+      from: null,
+      to: { id: state.id, name: state.name },
+      syncId,
+    },
+  ]);
+
+  const notifications = await issueNotifications(tx, principal, actor, [
+    {
+      issue,
+      mentionHandles: newMentions('', issue.description),
+      assigneeId: issue.assigneeId,
+      statusName: null,
+    },
+  ]);
+
+  return {
+    issue,
+    actions: [
+      issueAction(issue, syncId, actor, 'insert', {
+        labelIds: item.labelIds,
+        reviewerIds,
+      }),
+      ...notifications,
+    ],
+  };
+}
+
+export async function createSubIssues(
+  principal: Principal,
+  input: unknown,
+): Promise<{ issues: IssueRow[]; actions: SyncAction[] }> {
+  assertCan(principal, 'issue:create');
+  const parsed = createSubIssuesSchema.parse(input);
+
+  const parent = await loadIssue(db, principal, parsed.parentId);
+  const allocationTeam = await requireTeam(principal, parent.teamId);
+  const numbers = await allocateIssueNumbers(db, allocationTeam, parsed.issues.length);
+
+  return await db.transaction(async (tx) => {
+    const team = await requireTeam(principal, parent.teamId, tx);
+    await assertParentAllowed(tx, principal, newId(), parent.id);
+
+    const defaultState = await initialStateFor(tx, team.id);
+    const syncId = await nextSyncId(tx);
+    const actor = await principalActor(tx, principal);
+    const now = new Date();
+    const context: SubIssueContext = {
+      tx,
+      principal,
+      team,
+      parent,
+      defaultState,
+      syncId,
+      actor,
+      now,
+    };
+
+    const createdIssues: IssueRow[] = [];
+    const allActions: SyncAction[] = [];
+
+    let index = 0;
+    for (const item of parsed.issues) {
+      const issueNumber = numbers[index];
+      index += 1;
+      if (issueNumber === undefined) {
+        throw validationFailed('Could not allocate issue number.');
+      }
+      try {
+        const created = await insertSubIssue(context, item, issueNumber);
+        createdIssues.push(created.issue);
+        allActions.push(...created.actions);
+      } catch (error) {
+        if (error instanceof DomainError) {
+          throw new DomainError(error.code, `Failed on item ${index}: ${error.message}`, {
+            cause: error,
+            ...(error.details === undefined ? {} : { details: error.details }),
+          });
+        }
+        throw error;
+      }
+    }
+
+    return { issues: createdIssues, actions: allActions };
+  });
+}
+
 export interface UpdatedIssue {
   readonly issue: IssueRow;
   readonly changes: FieldChange[];
@@ -1049,6 +1238,94 @@ async function subscribeChangedReviewers(
     });
 }
 
+function formatExpectedDueDate(value: Date | string | null | undefined): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+  return String(value).slice(0, 10);
+}
+
+function checkPropertyMatch(expected: unknown, current: unknown, label: string): void {
+  if (expected === undefined || current === expected) {
+    return;
+  }
+  throw conflict(`Cannot undo: ${label} was changed by another update.`);
+}
+
+function checkArrayMatch(
+  expected: readonly string[] | undefined,
+  current: readonly string[],
+  label: string,
+): void {
+  if (expected === undefined) {
+    return;
+  }
+  if (expected.length !== current.length) {
+    throw conflict(`Cannot undo: ${label} was changed by another update.`);
+  }
+  const expectedSorted = [...expected].sort();
+  const currentSorted = [...current].sort();
+  for (let i = 0; i < expectedSorted.length; i++) {
+    if (expectedSorted[i] !== currentSorted[i]) {
+      throw conflict(`Cannot undo: ${label} was changed by another update.`);
+    }
+  }
+}
+
+function checkDueDateMatch(
+  expected: Date | string | null | undefined,
+  current: string | null,
+): void {
+  if (expected === undefined) {
+    return;
+  }
+  const currentIso = current === null ? null : current.slice(0, 10);
+  const expectedIso = formatExpectedDueDate(expected);
+  if (currentIso !== expectedIso) {
+    throw conflict('Cannot undo: due date was changed by another update.');
+  }
+}
+
+export function assertExpectedIssueState(
+  current: IssueRow,
+  expected: IssueExpectedProperties,
+  currentLabels: readonly string[],
+  currentReviewers: readonly string[],
+): void {
+  checkPropertyMatch(expected.stateId, current.stateId, 'state');
+  checkPropertyMatch(expected.assigneeId, current.assigneeId, 'assignee');
+  checkPropertyMatch(expected.priority, current.priority, 'priority');
+  checkPropertyMatch(expected.estimate, current.estimate, 'estimate');
+  checkPropertyMatch(expected.projectId, current.projectId, 'project');
+  checkPropertyMatch(expected.milestoneId, current.milestoneId, 'milestone');
+  checkPropertyMatch(expected.cycleId, current.cycleId, 'sprint cycle');
+  checkPropertyMatch(expected.parentId, current.parentId, 'parent');
+  checkDueDateMatch(expected.dueDate, current.dueDate);
+  checkArrayMatch(expected.labelIds, currentLabels, 'labels');
+  checkArrayMatch(expected.reviewerIds, currentReviewers, 'reviewers');
+}
+
+async function assertExpectedUpdates(
+  tx: Executor,
+  loaded: ReadonlyMap<string, IssueRow>,
+  issueIds: readonly string[],
+  expected: IssueExpectedProperties,
+): Promise<void> {
+  const labels = expected.labelIds === undefined ? null : await labelIdsByIssue(tx, issueIds);
+  const reviewers =
+    expected.reviewerIds === undefined ? null : await reviewerIdsByIssue(tx, issueIds);
+
+  for (const issueId of issueIds) {
+    const current = requireRow(loaded.get(issueId), 'That issue does not exist.');
+    const currentLabels = labels === null ? [] : (labels.get(issueId) ?? []);
+    const currentReviewers = reviewers === null ? [] : (reviewers.get(issueId) ?? []);
+    assertExpectedIssueState(current, expected, currentLabels, currentReviewers);
+  }
+}
+
 async function applyIssueUpdates(
   tx: Executor,
   principal: Principal,
@@ -1056,6 +1333,9 @@ async function applyIssueUpdates(
   parsed: ReturnType<typeof issueUpdateSchema.parse>,
 ): Promise<UpdatedIssue[]> {
   const loaded = await loadIssues(tx, principal.organizationId, issueIds);
+  if (parsed.expected !== undefined) {
+    await assertExpectedUpdates(tx, loaded, issueIds, parsed.expected);
+  }
   if (parsed.cycleId !== undefined) {
     await lockCycleAssignmentWorkspace(tx, principal.organizationId);
     const teamIds = [...new Set([...loaded.values()].map((issue) => issue.teamId))].sort();
@@ -1822,7 +2102,13 @@ export async function listIssues(principal: Principal, input: unknown = {}): Pro
   assertCan(principal, 'issue:read');
   const filter = issueListSchema.parse(input);
   const ordering = ORDERINGS[filter.orderBy];
-  const filters = [buildIssueWhere(principal, { visibility: 'team', filter, now: new Date() })];
+  const filters = [
+    buildIssueWhere(principal, {
+      visibility: filter.view === 'standup' ? 'standup' : 'team',
+      filter,
+      now: new Date(),
+    }),
+  ];
 
   if (filter.cursor !== undefined) {
     const { value, id } = decodeCursor(filter.cursor);
@@ -1834,7 +2120,9 @@ export async function listIssues(principal: Principal, input: unknown = {}): Pro
 
   const direction = ordering.descending ? desc : asc;
   const rows = await db
-    .select(filter.select === 'full' ? ISSUE_COLUMNS : ISSUE_LIST_COLUMNS)
+    .select(
+      filter.view !== 'standup' && filter.select === 'full' ? ISSUE_COLUMNS : ISSUE_LIST_COLUMNS,
+    )
     .from(schema.issue)
     .where(and(...filters))
     .orderBy(direction(ordering.expression), direction(schema.issue.id))
@@ -1846,7 +2134,19 @@ export async function listIssues(principal: Principal, input: unknown = {}): Pro
     rows.length > filter.limit && last !== undefined
       ? encodeCursor(ordering.read(last), last.id)
       : null;
-  return { issues: page, nextCursor };
+  return {
+    issues:
+      filter.view === 'standup'
+        ? page.map((issue) => ({
+            ...issue,
+            canOpen: isInTeam(principal, {
+              id: issue.teamId,
+              organizationId: principal.organizationId,
+            }),
+          }))
+        : page,
+    nextCursor,
+  };
 }
 
 export async function getIssueCounts(
@@ -1945,20 +2245,23 @@ async function milestoneFacet(where: SQL | undefined): Promise<Record<string, nu
   return tally(rows);
 }
 
-async function participantFacet(where: SQL | undefined): Promise<Record<string, number>> {
+async function participantFacet(
+  where: SQL | undefined,
+  workType: IssueFilterInput['workType'],
+): Promise<Record<string, number>> {
   const rows = await db.execute<{ key: string; total: number }>(sql`
     select participant.key, count(distinct participant.issue_id)::int as total
     from (
       select ${schema.issue.id} as issue_id,
              coalesce(${schema.issue.assigneeId}, ${UNSET_FACET_VALUE}) as key
       from ${schema.issue}
-      ${where === undefined ? sql`` : sql`where ${where}`}
+      where ${where ?? sql`true`} and ${workType !== 'reviewing'}
       union all
       select ${schema.issue.id} as issue_id, ${schema.issueReviewer.userId} as key
       from ${schema.issue}
       inner join ${schema.issueReviewer}
         on ${schema.issueReviewer.issueId} = ${schema.issue.id}
-      ${where === undefined ? sql`` : sql`where ${where}`}
+      where ${where ?? sql`true`} and ${workType !== 'assigned'}
     ) participant
     group by participant.key
   `);
@@ -2046,8 +2349,9 @@ type SummaryGroupProperty = ReturnType<typeof issueSummaryQuerySchema.parse>['gr
 function facetFor(
   property: SummaryGroupProperty,
   where: SQL | undefined,
+  workType: IssueFilterInput['workType'],
 ): Promise<Record<string, number>> {
-  if (property === 'participant') return participantFacet(where);
+  if (property === 'participant') return participantFacet(where, workType);
   if (property === 'label') return labelFacet(where);
   if (property === 'milestone') return milestoneFacet(where);
   return facetOf(FACET_COLUMNS[property](), where);
@@ -2183,7 +2487,7 @@ export async function getIssueSummary(
   assertCan(principal, 'issue:read');
   const filter = issueSummaryQuerySchema.parse(input);
   const matching = buildIssueWhere(principal, {
-    visibility: 'team',
+    visibility: filter.view === 'standup' ? 'standup' : 'team',
     filter,
     now: new Date(),
   });
@@ -2194,7 +2498,7 @@ export async function getIssueSummary(
       .from(schema.issue)
       .where(matching)
       .groupBy(schema.issue.stateId),
-    filter.groupBy === 'state' ? null : facetFor(filter.groupBy, matching),
+    filter.groupBy === 'state' ? null : facetFor(filter.groupBy, matching, filter.workType),
   ]);
 
   const byState: Record<string, number> = {};
@@ -2214,7 +2518,7 @@ export async function getIssueFacets(
   assertCan(principal, 'issue:read');
   const filter = issueListSchema.parse(input);
   const scope = buildIssueWhere(principal, {
-    visibility: 'team',
+    visibility: filter.view === 'standup' ? 'standup' : 'team',
     filter,
     now: new Date(),
     advancedFilter: 'omit',
@@ -2248,7 +2552,7 @@ export async function getIssue(principal: Principal, idOrIdentifier: string): Pr
     direct !== undefined || identifier === null
       ? []
       : await db
-          .select(getTableColumns(schema.issue))
+          .select({ issue: schema.issue })
           .from(schema.issueIdentifierAlias)
           .innerJoin(schema.issue, eq(schema.issue.id, schema.issueIdentifierAlias.issueId))
           .where(
@@ -2259,7 +2563,7 @@ export async function getIssue(principal: Principal, idOrIdentifier: string): Pr
             ),
           )
           .limit(1);
-  const row = direct ?? aliased;
+  const row = direct ?? aliased?.issue;
   const issue = requireRow(row, 'That issue does not exist.');
   if (!isInTeam(principal, teamScope(issue))) throw notFound('That issue does not exist.');
   return issue;
@@ -2296,6 +2600,18 @@ export async function setRelation(
   if (parsed.relatedIssueId === issueId) {
     throw validationFailed('An issue cannot relate to itself.');
   }
+  if (parsed.type === 'duplicate_of') {
+    const result = await markAsDuplicate(principal, issueId, {
+      survivorIssueId: parsed.relatedIssueId,
+    });
+    return { relations: result.relations, actions: result.actions };
+  }
+  if (parsed.type === 'duplicated_by') {
+    const result = await markAsDuplicate(principal, parsed.relatedIssueId, {
+      survivorIssueId: issueId,
+    });
+    return { relations: result.relations, actions: result.actions };
+  }
 
   return await db.transaction(async (tx) => {
     const source = await loadIssue(tx, principal, issueId);
@@ -2328,17 +2644,19 @@ export async function setRelation(
       .onConflictDoNothing()
       .returning();
 
-    await appendActivities(tx, [
-      {
-        organizationId: principal.organizationId,
-        issueId: source.id,
-        actor,
-        field: 'relation',
-        from: null,
-        to: `${parsed.type} ${target.identifier}`,
-        syncId,
-      },
-    ]);
+    if (relations.length > 0) {
+      await appendActivities(tx, [
+        {
+          organizationId: principal.organizationId,
+          issueId: source.id,
+          actor,
+          field: 'relation',
+          from: null,
+          to: `${parsed.type} ${target.identifier}`,
+          syncId,
+        },
+      ]);
+    }
 
     return {
       relations,
@@ -2630,4 +2948,402 @@ export async function findDuplicateIssues(
     },
     similarity: Number(row.similarity),
   }));
+}
+
+async function removeExistingDuplicates(
+  tx: Executor,
+  organizationId: string,
+  source: IssueRow,
+  actor: Actor,
+  syncId: number,
+): Promise<{ actions: SyncAction[] }> {
+  const existingDuplicates = await tx
+    .select({
+      id: schema.issueRelation.id,
+      issueId: schema.issueRelation.issueId,
+      relatedIssueId: schema.issueRelation.relatedIssueId,
+      type: schema.issueRelation.type,
+      teamId: schema.issue.teamId,
+    })
+    .from(schema.issueRelation)
+    .innerJoin(schema.issue, eq(schema.issueRelation.issueId, schema.issue.id))
+    .where(
+      and(
+        eq(schema.issueRelation.organizationId, organizationId),
+        or(
+          and(
+            eq(schema.issueRelation.issueId, source.id),
+            eq(schema.issueRelation.type, 'duplicate_of'),
+          ),
+          and(
+            eq(schema.issueRelation.relatedIssueId, source.id),
+            eq(schema.issueRelation.type, 'duplicated_by'),
+          ),
+        ),
+      ),
+    );
+
+  if (existingDuplicates.length === 0) return { actions: [] };
+
+  await tx.delete(schema.issueRelation).where(
+    and(
+      eq(schema.issueRelation.organizationId, organizationId),
+      inArray(
+        schema.issueRelation.id,
+        existingDuplicates.map((row) => row.id),
+      ),
+    ),
+  );
+
+  const actions = existingDuplicates.map((row) =>
+    buildSyncAction({
+      syncId,
+      organizationId,
+      scopes: [scopes.team(row.teamId), scopes.issue(row.issueId)],
+      action: 'delete',
+      model: 'issue_relation',
+      modelId: row.id,
+      data: { id: row.id, issueId: row.issueId, relatedIssueId: row.relatedIssueId },
+      actor,
+    }),
+  );
+
+  return { actions };
+}
+
+async function transferSubscriptions(
+  tx: Executor,
+  organizationId: string,
+  source: IssueRow,
+  target: IssueRow,
+  actor: Actor,
+  syncId: number,
+): Promise<SyncAction[]> {
+  const existingSubs = await tx
+    .select({ userId: schema.issueSubscription.userId })
+    .from(schema.issueSubscription)
+    .where(eq(schema.issueSubscription.issueId, source.id));
+
+  const subUserIds = existingSubs.map((sub) => sub.userId);
+  if (subUserIds.length === 0) return [];
+
+  const targetReaders = await teamReaderIds(tx, organizationId, target.teamId, subUserIds);
+  const allowedUserIds = subUserIds.filter((id) => targetReaders.has(id));
+
+  if (allowedUserIds.length === 0) return [];
+
+  await subscribeUsers(tx, target.id, allowedUserIds, syncId);
+
+  return allowedUserIds.map((userId) =>
+    buildSyncAction({
+      syncId,
+      organizationId,
+      scopes: [scopes.user(userId)],
+      action: 'insert',
+      model: 'issue_subscription',
+      modelId: `${target.id}:${userId}`,
+      data: { issueId: target.id, userId, identifier: target.identifier, syncId },
+      actor,
+    }),
+  );
+}
+
+async function assertSurvivorAllowed(
+  executor: Executor,
+  organizationId: string,
+  sourceId: string,
+  target: IssueRow,
+): Promise<void> {
+  if (target.archivedAt !== null) {
+    throw validationFailed('An archived issue cannot be a survivor.');
+  }
+
+  let cursor: string | null = target.id;
+  const visited = new Set<string>();
+  while (cursor !== null) {
+    if (cursor === sourceId) {
+      throw validationFailed(
+        'An issue cannot be marked as a duplicate of an issue that duplicates it.',
+      );
+    }
+    if (visited.has(cursor)) break;
+    visited.add(cursor);
+
+    const [row] = await executor
+      .select({ relatedIssueId: schema.issueRelation.relatedIssueId })
+      .from(schema.issueRelation)
+      .where(
+        and(
+          eq(schema.issueRelation.organizationId, organizationId),
+          eq(schema.issueRelation.issueId, cursor),
+          eq(schema.issueRelation.type, 'duplicate_of'),
+        ),
+      )
+      .limit(1);
+
+    if (row === undefined) {
+      cursor = null;
+    } else {
+      if (row.relatedIssueId === sourceId) {
+        throw validationFailed(
+          'An issue cannot be marked as a duplicate of an issue that duplicates it.',
+        );
+      }
+      if (cursor === target.id) {
+        throw validationFailed('A duplicate issue cannot be a survivor.');
+      }
+      cursor = row.relatedIssueId;
+    }
+  }
+}
+
+async function loadIssuesForUpdate(
+  tx: Executor,
+  principal: Principal,
+  sourceId: string,
+  targetId: string,
+): Promise<{ source: IssueRow; target: IssueRow }> {
+  const [firstId, secondId] = sourceId < targetId ? [sourceId, targetId] : [targetId, sourceId];
+  const firstIssue = await loadIssueForUpdate(tx, principal, firstId);
+  const secondIssue = await loadIssueForUpdate(tx, principal, secondId);
+  return {
+    source: sourceId === firstId ? firstIssue : secondIssue,
+    target: targetId === firstId ? firstIssue : secondIssue,
+  };
+}
+
+async function assertSourceAllowed(
+  tx: Executor,
+  organizationId: string,
+  sourceId: string,
+): Promise<void> {
+  const [sourceHasDuplicates] = await tx
+    .select()
+    .from(schema.issueRelation)
+    .where(
+      and(
+        eq(schema.issueRelation.organizationId, organizationId),
+        eq(schema.issueRelation.issueId, sourceId),
+        eq(schema.issueRelation.type, 'duplicated_by'),
+      ),
+    )
+    .limit(1);
+
+  if (sourceHasDuplicates !== undefined) {
+    throw validationFailed('An issue with duplicates cannot be marked as a duplicate.');
+  }
+}
+
+export async function markAsDuplicate(
+  principal: Principal,
+  issueId: string,
+  input: unknown,
+): Promise<{ issue: IssueRow; relations: IssueRelationRow[]; actions: SyncAction[] }> {
+  assertCan(principal, 'issue:update');
+  const parsed = issueMarkDuplicateSchema.parse(input);
+  if (parsed.survivorIssueId === issueId) {
+    throw validationFailed('An issue cannot be marked as a duplicate of itself.');
+  }
+
+  return await db.transaction(async (tx) => {
+    const { source, target } = await loadIssuesForUpdate(
+      tx,
+      principal,
+      issueId,
+      parsed.survivorIssueId,
+    );
+
+    const [existingDuplicateOf] = await tx
+      .select()
+      .from(schema.issueRelation)
+      .where(
+        and(
+          eq(schema.issueRelation.organizationId, principal.organizationId),
+          eq(schema.issueRelation.issueId, source.id),
+          eq(schema.issueRelation.type, 'duplicate_of'),
+        ),
+      )
+      .limit(1);
+
+    if (
+      source.canceledAt !== null &&
+      existingDuplicateOf !== undefined &&
+      existingDuplicateOf.relatedIssueId === target.id
+    ) {
+      return { issue: source, relations: [existingDuplicateOf], actions: [] };
+    }
+
+    await assertSurvivorAllowed(tx, principal.organizationId, source.id, target);
+    await assertSourceAllowed(tx, principal.organizationId, source.id);
+
+    const canceledStates = await tx
+      .select()
+      .from(schema.workflowState)
+      .where(
+        and(
+          eq(schema.workflowState.teamId, source.teamId),
+          eq(schema.workflowState.category, 'canceled'),
+        ),
+      )
+      .orderBy(asc(schema.workflowState.position));
+
+    const canceledState =
+      canceledStates.find((state) => state.name.toLowerCase() === 'duplicate') ?? canceledStates[0];
+
+    if (canceledState === undefined) {
+      throw validationFailed('The team has no canceled status.');
+    }
+
+    const syncId = await nextSyncId(tx);
+    const actor = await principalActor(tx, principal);
+    const now = new Date();
+
+    const { actions: oldRelationDeleteActions } = await removeExistingDuplicates(
+      tx,
+      principal.organizationId,
+      source,
+      actor,
+      syncId,
+    );
+
+    const relations = await tx
+      .insert(schema.issueRelation)
+      .values([
+        {
+          id: newId(),
+          organizationId: principal.organizationId,
+          issueId: source.id,
+          relatedIssueId: target.id,
+          type: 'duplicate_of',
+          syncId,
+        },
+        {
+          id: newId(),
+          organizationId: principal.organizationId,
+          issueId: target.id,
+          relatedIssueId: source.id,
+          type: 'duplicated_by',
+          syncId,
+        },
+      ])
+      .onConflictDoNothing()
+      .returning();
+
+    const stateChanged = source.stateId !== canceledState.id;
+    let updatedIssue = source;
+    let sourceState: { id: string; name: string } | undefined;
+    if (stateChanged) {
+      const [sourceStateRow] = await tx
+        .select({ id: schema.workflowState.id, name: schema.workflowState.name })
+        .from(schema.workflowState)
+        .where(eq(schema.workflowState.id, source.stateId))
+        .limit(1);
+      sourceState = sourceStateRow;
+
+      const [updatedRow] = await tx
+        .update(schema.issue)
+        .set({
+          stateId: canceledState.id,
+          ...stateTimestamps('canceled', now),
+          updatedAt: now,
+          syncId,
+        })
+        .where(
+          and(
+            eq(schema.issue.id, source.id),
+            eq(schema.issue.organizationId, principal.organizationId),
+          ),
+        )
+        .returning();
+      if (updatedRow !== undefined) {
+        updatedIssue = updatedRow;
+      }
+    }
+
+    const statusNotifications = stateChanged
+      ? await issueNotifications(tx, principal, actor, [
+          {
+            issue: updatedIssue,
+            mentionHandles: [],
+            assigneeId: null,
+            statusName: canceledState.name,
+          },
+        ])
+      : [];
+
+    const subActions = await transferSubscriptions(
+      tx,
+      principal.organizationId,
+      source,
+      target,
+      actor,
+      syncId,
+    );
+
+    const activitiesToAppend: Parameters<typeof appendActivities>[1][number][] = [
+      {
+        organizationId: principal.organizationId,
+        issueId: source.id,
+        actor,
+        field: 'relation',
+        from: null,
+        to: `duplicate_of ${target.identifier}`,
+        syncId,
+      },
+      {
+        organizationId: principal.organizationId,
+        issueId: target.id,
+        actor,
+        field: 'relation',
+        from: null,
+        to: `duplicated_by ${source.identifier}`,
+        syncId,
+      },
+    ];
+
+    if (stateChanged) {
+      activitiesToAppend.push({
+        organizationId: principal.organizationId,
+        issueId: source.id,
+        actor,
+        field: 'stateId',
+        from: sourceState ?? source.stateId,
+        to: { id: canceledState.id, name: canceledState.name },
+        syncId,
+      });
+    }
+
+    await appendActivities(tx, activitiesToAppend);
+
+    const relationActions = relations.map((row) =>
+      buildSyncAction({
+        syncId,
+        organizationId: principal.organizationId,
+        scopes: relationScopes(row, source, target),
+        action: 'insert',
+        model: 'issue_relation',
+        modelId: row.id,
+        data: row,
+        actor,
+      }),
+    );
+
+    const decorations = await issueDecorationsByIssue(tx, [updatedIssue.id]);
+    const updatedIssueAction = issueAction(updatedIssue, syncId, actor, 'update', {
+      labelIds: decorations.labels.get(updatedIssue.id) ?? [],
+      reviewerIds: decorations.reviewers.get(updatedIssue.id) ?? [],
+    });
+
+    return {
+      issue: updatedIssue,
+      relations,
+      actions: [
+        updatedIssueAction,
+        ...relationActions,
+        ...subActions,
+        ...oldRelationDeleteActions,
+        ...statusNotifications,
+      ],
+    };
+  });
 }

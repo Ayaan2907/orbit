@@ -18,6 +18,7 @@ import {
   bulkUpdateIssues,
   columnFacetsSql,
   createIssue,
+  createSubIssues,
   deleteIssue,
   getIssue,
   getIssueCounts,
@@ -37,6 +38,7 @@ import {
 } from '../../src/work/issue-service.ts';
 import { createMilestone } from '../../src/work/milestone-service.ts';
 import { createProject } from '../../src/work/project-service.ts';
+import { raceAcrossCycleLock } from '../support/interleave.ts';
 
 let workspace: Workspace;
 
@@ -965,6 +967,18 @@ describe('listIssues', () => {
     const summary = await getIssueSummary(workspace.admin, { groupBy: 'participant' });
     expect(summary.groupTotals[participant.user.id]).toBe(3);
     expect(summary.groupTotals[other.user.id]).toBe(2);
+    const assignedSummary = await getIssueSummary(workspace.admin, {
+      groupBy: 'participant',
+      workType: 'assigned',
+    });
+    expect(assignedSummary.groupTotals[participant.user.id]).toBe(2);
+    expect(assignedSummary.groupTotals[other.user.id]).toBe(2);
+    const reviewSummary = await getIssueSummary(workspace.admin, {
+      groupBy: 'participant',
+      workType: 'reviewing',
+    });
+    expect(reviewSummary.groupTotals[participant.user.id]).toBe(2);
+    expect(reviewSummary.groupTotals[other.user.id]).toBeUndefined();
   });
 
   it('counts the unowned issues under the same key the facets use', async () => {
@@ -1299,6 +1313,31 @@ describe('relations', () => {
     await expect(
       setRelation(workspace.admin, issue.id, { relatedIssueId: issue.id, type: 'related' }),
     ).rejects.toMatchObject({ code: 'validation_failed' });
+  });
+
+  it('does not write a second activity row on repeated setRelation', async () => {
+    const blocker = await newIssue('Blocker');
+    const blocked = await newIssue('Blocked');
+
+    const first = await setRelation(workspace.admin, blocker.id, {
+      relatedIssueId: blocked.id,
+      type: 'blocks',
+    });
+    expect(first.relations).toHaveLength(2);
+
+    const retry = await setRelation(workspace.admin, blocker.id, {
+      relatedIssueId: blocked.id,
+      type: 'blocks',
+    });
+    expect(retry.relations).toHaveLength(0);
+    expect(retry.actions).toHaveLength(0);
+
+    const activity = await db
+      .select()
+      .from(schema.issueActivity)
+      .where(eq(schema.issueActivity.issueId, blocker.id));
+    const relationActivity = activity.filter((row) => row.field === 'relation');
+    expect(relationActivity).toHaveLength(1);
   });
 
   it('returns the related issue rows alongside the link', async () => {
@@ -1692,5 +1731,120 @@ describe('allocating an issue number under concurrency', () => {
     const after = await createIssue(workspace.admin, { teamId: workspace.teamId, title: 'Next' });
 
     expect(after.issue.number).toBeGreaterThan(before.issue.number + 1);
+  });
+});
+
+describe('createSubIssues atomicity and concurrency', () => {
+  it('rolls back completely when an item fails inside the transaction', async () => {
+    const { states: otherStates } = await createTeam(workspace.admin, {
+      name: 'Other',
+      key: 'OTH',
+    });
+    const otherState = otherStates[0];
+    if (otherState === undefined) throw new Error('No state found for other team');
+    const parent = await newIssue('Parent for atomicity');
+
+    const counter = async (): Promise<number> => {
+      const [row] = await db
+        .select({ value: schema.team.issueCounter })
+        .from(schema.team)
+        .where(eq(schema.team.id, workspace.teamId));
+      return row?.value ?? 0;
+    };
+    const beforeCounter = await counter();
+
+    const batch = Array.from({ length: 10 }, (_, i) => ({
+      title: `Sub ${i + 1}`,
+      ...(i === 6 ? { stateId: otherState.id } : {}),
+    }));
+
+    await expect(
+      createSubIssues(workspace.admin, {
+        parentId: parent.id,
+        issues: batch,
+      }),
+    ).rejects.toThrow(DomainError);
+
+    const rows = await db.select().from(schema.issue).where(eq(schema.issue.parentId, parent.id));
+    expect(rows).toHaveLength(0);
+    expect(await counter()).toBe(beforeCounter + 10);
+  });
+
+  it('leaves a gap rather than reusing issue numbers when createSubIssues rolls back', async () => {
+    const { states: otherStates } = await createTeam(workspace.admin, {
+      name: 'Other 2',
+      key: 'OT2',
+    });
+    const otherState = otherStates[0];
+    if (otherState === undefined) throw new Error('No state found for other team');
+    const parent = await newIssue('Parent for gap test');
+
+    const batch = Array.from({ length: 5 }, (_, i) => ({
+      title: `Sub ${i + 1}`,
+      ...(i === 2 ? { stateId: otherState.id } : {}),
+    }));
+
+    await expect(
+      createSubIssues(workspace.admin, {
+        parentId: parent.id,
+        issues: batch,
+      }),
+    ).rejects.toThrow(DomainError);
+
+    const next = await newIssue('After failed batch');
+    expect(next.number).toBeGreaterThan(parent.number + 1);
+  });
+
+  it('does not deadlock against moveIssue into the same team under concurrency', async () => {
+    const { cycle } = await createCycle(workspace.admin, {
+      startsAt: new Date('2030-05-01').toISOString(),
+      endsAt: new Date('2030-05-15').toISOString(),
+    });
+    const parent = await newIssue('Parent in sprint', { cycleId: cycle.id });
+
+    const outcome = await raceAcrossCycleLock({
+      organizationId: workspace.organizationId,
+      race: () =>
+        createSubIssues(workspace.admin, {
+          parentId: parent.id,
+          issues: [
+            { title: 'Sub A', cycleId: cycle.id },
+            { title: 'Sub B', cycleId: cycle.id },
+          ],
+        }),
+      interlope: async (client) => {
+        await client`
+          update team
+          set issue_counter = issue_counter + 1
+          where id = ${workspace.teamId}
+        `;
+      },
+    });
+
+    expect(outcome.status).toBe('fulfilled');
+    if (outcome.status === 'fulfilled') {
+      expect(outcome.value.issues).toHaveLength(2);
+    }
+  });
+});
+
+describe('bulkUpdateIssues permissions', () => {
+  it('stops a member from bulk updating issues on a team they are not a member of', async () => {
+    const { team: otherTeam } = await createTeam(workspace.admin, {
+      name: 'Restricted',
+      key: 'RES',
+    });
+    const otherIssue = await createIssue(workspace.admin, {
+      teamId: otherTeam.id,
+      title: 'Restricted team issue',
+    });
+    const { principal: member } = await addMember(workspace, 'member');
+
+    await expect(
+      bulkUpdateIssues(member, {
+        issueIds: [otherIssue.issue.id],
+        patch: { priority: 1 },
+      }),
+    ).rejects.toThrow(DomainError);
   });
 });

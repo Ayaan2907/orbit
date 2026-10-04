@@ -1,9 +1,13 @@
 import { afterAll, describe, expect, it } from 'bun:test';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
+import { z } from 'zod';
 import { currentLane, laneDatabase } from '../../../scripts/test-env.ts';
 import { releaseDatabase } from '../src/migration-release.ts';
 
@@ -38,6 +42,40 @@ async function migrateScratch(): Promise<void> {
   await run(urlFor(SCRATCH), async (sql) => {
     await migrate(drizzle({ client: sql }), { migrationsFolder: MIGRATIONS });
   });
+}
+
+const migrationJournalEntrySchema = z.object({
+  idx: z.number().int().nonnegative(),
+  version: z.string().min(1),
+  when: z.number().int().positive(),
+  tag: z.string().min(1),
+  breakpoints: z.boolean(),
+});
+
+const migrationJournalSchema = z.object({
+  version: z.string().min(1),
+  dialect: z.string().min(1),
+  entries: z.array(migrationJournalEntrySchema).min(1),
+});
+
+async function migrationsFolderWithTrailer(): Promise<string> {
+  const folder = await mkdtemp(join(tmpdir(), 'orbit-release-'));
+  await cp(MIGRATIONS, folder, { recursive: true });
+  const journalPath = join(folder, 'meta', '_journal.json');
+  const journal = migrationJournalSchema.parse(JSON.parse(await readFile(journalPath, 'utf8')));
+  const last = journal.entries.at(-1);
+  if (last === undefined) throw new Error('the migration journal has no entries to build on');
+  const tag = '9999_release_reconcile_probe';
+  journal.entries.push({
+    idx: last.idx + 1,
+    version: last.version,
+    when: last.when + 1,
+    tag,
+    breakpoints: true,
+  });
+  await writeFile(journalPath, JSON.stringify(journal, null, 2));
+  await writeFile(join(folder, `${tag}.sql`), 'SELECT 1;\n');
+  return folder;
 }
 
 describe('database release', () => {
@@ -116,10 +154,20 @@ describe('database release', () => {
 
   it('does not silently baseline a missing webhook ownership constraint', async () => {
     await resetScratch();
-    await migrateScratch();
+    const migrations = readMigrationFiles({ migrationsFolder: MIGRATIONS });
+    const constraintIndex = migrations.findIndex((migration) =>
+      migration.sql.some((statement) =>
+        statement.includes('ADD CONSTRAINT "webhook_delivery_processing_claim_check"'),
+      ),
+    );
+    expect(constraintIndex).toBeGreaterThan(0);
     await run(urlFor(SCRATCH), async (sql) => {
-      await sql`alter table webhook_delivery drop constraint webhook_delivery_processing_claim_check`;
-      await sql`delete from drizzle.__drizzle_migrations where created_at = (select max(created_at) from drizzle.__drizzle_migrations)`;
+      await sql`create schema drizzle`;
+      await sql`create table drizzle.__drizzle_migrations (id serial primary key, hash text not null, created_at bigint)`;
+      for (const migration of migrations.slice(0, constraintIndex)) {
+        for (const statement of migration.sql) await sql.unsafe(statement);
+        await sql`insert into drizzle.__drizzle_migrations (hash, created_at) values (${migration.hash}, ${migration.folderMillis})`;
+      }
     });
     await releaseDatabase(urlFor(SCRATCH), MIGRATIONS);
     const rows = await run(
@@ -128,6 +176,148 @@ describe('database release', () => {
         sql`select convalidated from pg_constraint where conname = 'webhook_delivery_processing_claim_check'`,
     );
     expect([...rows]).toEqual([{ convalidated: true }]);
+  }, 60_000);
+
+  it('reconciles objects owned by already-applied migrations when a later migration is pending', async () => {
+    await resetScratch();
+    await migrateScratch();
+    await run(urlFor(SCRATCH), async (sql) => {
+      await sql`alter table webhook_delivery drop constraint webhook_delivery_processing_claim_check`;
+      await sql`drop trigger notification_deduplicated_target_trigger on notification`;
+      await sql`drop function validate_notification_deduplicated_target()`;
+      await sql`drop trigger notification_delivery_deduplicated_target_trigger on notification_delivery`;
+      await sql`drop function validate_notification_delivery_deduplicated_target()`;
+    });
+
+    const folder = await migrationsFolderWithTrailer();
+    let mode: string;
+    try {
+      const result = await releaseDatabase(urlFor(SCRATCH), folder);
+      mode = result.mode;
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+
+    const constraint = await run(
+      urlFor(SCRATCH),
+      (sql) =>
+        sql`select convalidated from pg_constraint where conname = 'webhook_delivery_processing_claim_check'`,
+    );
+    const triggers = await run(
+      urlFor(SCRATCH),
+      (sql) => sql<{ trigger_name: string; valid: boolean }[]>`
+        select
+          trigger.tgname as trigger_name,
+          trigger.tgdeferrable
+            and trigger.tginitdeferred
+            and trigger.tgenabled = 'O'
+            and trigger.tgconstraint <> 0 as valid
+        from pg_trigger trigger
+        inner join pg_class relation on relation.oid = trigger.tgrelid
+        inner join pg_namespace namespace on namespace.oid = relation.relnamespace
+        where namespace.nspname = 'public'
+          and trigger.tgname in (
+            'notification_deduplicated_target_trigger',
+            'notification_delivery_deduplicated_target_trigger'
+          )
+        order by trigger.tgname
+      `,
+    );
+
+    expect(mode).toBe('baselined');
+    expect([...constraint]).toEqual([{ convalidated: true }]);
+    expect([...triggers]).toEqual([
+      { trigger_name: 'notification_deduplicated_target_trigger', valid: true },
+      { trigger_name: 'notification_delivery_deduplicated_target_trigger', valid: true },
+    ]);
+  }, 60_000);
+
+  it('runs a pending migration that only adds a check instead of baselining it away', async () => {
+    await resetScratch();
+    await migrateScratch();
+    const source = await readFile(join(MIGRATIONS, '0021_mixed_dust.sql'), 'utf8');
+    const statement = source
+      .split('--> statement-breakpoint')
+      .map((part) => part.trim())
+      .find((part) => part.includes('ADD CONSTRAINT "github_pull_request_head_epoch_check"'));
+    expect(statement).toBeDefined();
+
+    await run(urlFor(SCRATCH), async (sql) => {
+      await sql`alter table github_pull_request drop constraint github_pull_request_head_epoch_check`;
+    });
+
+    const folder = await mkdtemp(join(tmpdir(), 'orbit-release-pending-check-'));
+    await cp(MIGRATIONS, folder, { recursive: true });
+    const journalPath = join(folder, 'meta', '_journal.json');
+    const journal = migrationJournalSchema.parse(JSON.parse(await readFile(journalPath, 'utf8')));
+    const last = journal.entries.at(-1);
+    if (last === undefined) throw new Error('the migration journal has no entries to build on');
+    const tag = '9999_release_pending_check_probe';
+    journal.entries.push({
+      idx: last.idx + 1,
+      version: last.version,
+      when: last.when + 1,
+      tag,
+      breakpoints: true,
+    });
+    await writeFile(journalPath, JSON.stringify(journal, null, 2));
+    await writeFile(join(folder, `${tag}.sql`), `${statement ?? ''}\n`);
+
+    let mode = '';
+    try {
+      mode = (await releaseDatabase(urlFor(SCRATCH), folder)).mode;
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+
+    expect(mode).toBe('migrated');
+    const constraint = await run(
+      urlFor(SCRATCH),
+      (sql) =>
+        sql`select convalidated from pg_constraint where conname = 'github_pull_request_head_epoch_check'`,
+    );
+    expect([...constraint]).toEqual([{ convalidated: true }]);
+  }, 60_000);
+
+  it('does not route a same-named check on another table to the migration path', async () => {
+    await resetScratch();
+    await migrateScratch();
+    await run(urlFor(SCRATCH), async (sql) => {
+      await sql`alter table github_pull_request drop constraint github_pull_request_head_epoch_check`;
+    });
+
+    const folder = await mkdtemp(join(tmpdir(), 'orbit-release-stray-check-'));
+    await cp(MIGRATIONS, folder, { recursive: true });
+    const journalPath = join(folder, 'meta', '_journal.json');
+    const journal = migrationJournalSchema.parse(JSON.parse(await readFile(journalPath, 'utf8')));
+    const last = journal.entries.at(-1);
+    if (last === undefined) throw new Error('the migration journal has no entries to build on');
+    const tag = '9999_release_stray_check_probe';
+    journal.entries.push({
+      idx: last.idx + 1,
+      version: last.version,
+      when: last.when + 1,
+      tag,
+      breakpoints: true,
+    });
+    await writeFile(journalPath, JSON.stringify(journal, null, 2));
+    await writeFile(
+      join(folder, `${tag}.sql`),
+      'ALTER TABLE "notification" ADD CONSTRAINT "github_pull_request_head_epoch_check" CHECK (true);\n',
+    );
+
+    try {
+      await expect(releaseDatabase(urlFor(SCRATCH), folder)).rejects.toThrow('still incompatible');
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+
+    const stray = await run(
+      urlFor(SCRATCH),
+      (sql) =>
+        sql`select count(*)::int as count from pg_constraint where conname = 'github_pull_request_head_epoch_check' and conrelid = 'notification'::regclass`,
+    );
+    expect([...stray]).toEqual([{ count: 0 }]);
   }, 60_000);
 
   it('restores deferred audit triggers while baselining a schema-pushed catalog', async () => {
@@ -484,5 +674,53 @@ describe('database release', () => {
 
     expect(result).toEqual({ mode: 'baselined', applied: 0, total: migrations.length });
     expect(ledger?.count).toBe(migrations.length);
+  }, 60_000);
+
+  it('runs a pending table-drop migration instead of baselining it away', async () => {
+    await resetScratch();
+    const migrations = readMigrationFiles({ migrationsFolder: MIGRATIONS });
+    const dropIndex = migrations.findIndex((migration) =>
+      migration.sql.some((statement) => statement.includes('DROP TABLE "module"')),
+    );
+    expect(dropIndex).toBeGreaterThan(0);
+    await run(urlFor(SCRATCH), async (sql) => {
+      await sql`create schema drizzle`;
+      await sql`create table drizzle.__drizzle_migrations (id serial primary key, hash text not null, created_at bigint)`;
+      for (const migration of migrations.slice(0, dropIndex)) {
+        for (const statement of migration.sql) await sql.unsafe(statement);
+        await sql`insert into drizzle.__drizzle_migrations (hash, created_at) values (${migration.hash}, ${migration.folderMillis})`;
+      }
+    });
+
+    const before = await run(
+      urlFor(SCRATCH),
+      (sql) => sql<{ table_name: string }[]>`
+        select table_name from information_schema.tables
+        where table_schema = 'public'
+          and table_name in ('module', 'module_issue', 'module_link', 'module_member')
+        order by table_name
+      `,
+    );
+    expect([...before]).toHaveLength(4);
+
+    const result = await releaseDatabase(urlFor(SCRATCH), MIGRATIONS);
+    const remaining = await run(
+      urlFor(SCRATCH),
+      (sql) => sql<{ table_name: string }[]>`
+        select table_name from information_schema.tables
+        where table_schema = 'public'
+          and table_name in ('module', 'module_issue', 'module_link', 'module_member')
+        order by table_name
+      `,
+    );
+    const ledger = await run(
+      urlFor(SCRATCH),
+      (sql) => sql`select hash from drizzle.__drizzle_migrations order by created_at`,
+    );
+
+    expect(result.mode).toBe('migrated');
+    expect(result.applied).toBe(migrations.length - dropIndex);
+    expect([...remaining]).toEqual([]);
+    expect(ledger.map((row) => row['hash'])).toEqual(migrations.map((migration) => migration.hash));
   }, 60_000);
 });

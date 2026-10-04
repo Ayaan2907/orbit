@@ -9,7 +9,7 @@ import {
 } from '@orbit/realtime-client/react';
 import type { SyncAction, SyncModel } from '@orbit/shared/events';
 import { scopes, syncCatchupSchema } from '@orbit/shared/events';
-import { type QueryClient, type QueryKey, useQueryClient } from '@tanstack/react-query';
+import { type Query, type QueryClient, type QueryKey, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ANALYTICS_ROOT } from '@/features/analytics/analytics-keys.ts';
 import { clientId } from '@/lib/query/client-id.ts';
@@ -101,6 +101,7 @@ function noop(): undefined {
 
 interface RootInvalidations {
   analytics: boolean;
+  agentWork: boolean;
   counts: boolean;
   boards: boolean;
   issueCaches: boolean;
@@ -648,6 +649,15 @@ function routeAction(
 }
 
 function flushRoots(client: QueryClient, roots: RootInvalidations): void {
+  if (roots.agentWork)
+    client
+      .invalidateQueries({
+        predicate: (query) => {
+          const search = query.queryKey.at(-1);
+          return typeof search === 'string' && new URLSearchParams(search).get('aiOnly') === 'true';
+        },
+      })
+      .catch(noop);
   if (roots.analytics) client.invalidateQueries({ queryKey: [ANALYTICS_ROOT] }).catch(noop);
   if (roots.counts) {
     client.invalidateQueries({ queryKey: [ISSUE_SUMMARY_ROOT] }).catch(noop);
@@ -675,13 +685,46 @@ function flushRoots(client: QueryClient, roots: RootInvalidations): void {
   }
 }
 
-async function resetIssueCaches(client: QueryClient): Promise<void> {
-  recordIssueCacheReset(client);
-  await Promise.allSettled([
-    client.resetQueries({ queryKey: [ISSUES_ROOT] }),
-    client.resetQueries({ queryKey: [ISSUE_ROOT] }),
-    client.resetQueries({ queryKey: [BOARD_ROOT] }),
-  ]);
+const ISSUE_CACHE_ROOTS = [ISSUES_ROOT, ISSUE_ROOT, BOARD_ROOT] as const;
+
+function showsIssueData(query: Query): boolean {
+  return query.getObserversCount() > 0 && query.state.data !== undefined;
+}
+
+function shownIssueQueries(client: QueryClient): ReadonlySet<Query> {
+  return new Set(
+    ISSUE_CACHE_ROOTS.flatMap((root) =>
+      client
+        .getQueryCache()
+        .findAll({ queryKey: [root] })
+        .filter(showsIssueData),
+    ),
+  );
+}
+
+function refreshIssueRoot(
+  client: QueryClient,
+  root: string,
+  shown: ReadonlySet<Query>,
+): Promise<void>[] {
+  const reset = client.resetQueries({ queryKey: [root], predicate: (query) => !shown.has(query) });
+  const shownInRoot = [...shown].some((query) => query.queryKey[0] === root);
+  if (!shownInRoot) return [reset];
+  return [
+    reset,
+    client.invalidateQueries({ queryKey: [root], predicate: (query) => shown.has(query) }),
+  ];
+}
+
+async function refreshIssueCaches(client: QueryClient): Promise<void> {
+  const shown = shownIssueQueries(client);
+  recordIssueCacheReset(
+    client,
+    [...shown].map((query) => query.queryKey),
+  );
+  await Promise.allSettled(
+    ISSUE_CACHE_ROOTS.flatMap((root) => refreshIssueRoot(client, root, shown)),
+  );
 }
 
 interface IssueDetailRecovery {
@@ -782,7 +825,7 @@ async function reconcileCatchup(
 
 async function reconcileResume(reconciliation: ResumeReconciliation): Promise<void> {
   const { client, since, detailRecoveries, signal, current } = reconciliation;
-  await resetIssueCaches(client);
+  await refreshIssueCaches(client);
   if (!current()) return;
   const recovery = recoverIssueDetails(client, detailRecoveries, signal, current);
   if (since === 0) {
@@ -847,6 +890,7 @@ export function DeltaBridge({ organizationId, teamIds }: DeltaBridgeProps) {
       const finalIssueActions = finalSurvivingIssueActions(actions, tabClientId);
       const roots: RootInvalidations = {
         analytics: false,
+        agentWork: false,
         counts: false,
         boards: false,
         issueCaches: false,
@@ -859,6 +903,8 @@ export function DeltaBridge({ organizationId, teamIds }: DeltaBridgeProps) {
       };
 
       for (const action of actions) {
+        if (['issue', 'member', 'comment', 'reaction', 'issue_relation'].includes(action.model))
+          roots.agentWork = true;
         if (ANALYTICS_MODELS.has(action.model)) roots.analytics = true;
         if (action.model === 'issue') {
           roots.counts = true;

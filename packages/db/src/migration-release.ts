@@ -3,7 +3,15 @@ import { type MigrationMeta, readMigrationFiles } from 'drizzle-orm/migrator';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
-import { catalogDriftBetween, expectedCatalog, isBehind, liveCatalog } from './check-drift.ts';
+import {
+  type Catalog,
+  catalogDriftBetween,
+  type Drift,
+  expectedCatalog,
+  isBehind,
+  liveCatalog,
+  needsCatchup,
+} from './check-drift.ts';
 import * as schema from './schema/index.ts';
 
 interface LedgerRow {
@@ -19,7 +27,7 @@ export interface ReleaseResult {
 
 const LOCK_KEY = 4_611_358_438_132_153;
 const RECONCILED_LEGACY_DATA_MIGRATIONS = new Set([
-  1786217938315, 1786623194883, 1788083189965, 1788724695589, 1788724695585,
+  1786217938315, 1786623194883, 1788083189965, 1788724695589, 1788724695585, 1789603762953,
 ]);
 const NOTIFICATION_AUDIT_MIGRATION = 1788724695590;
 const NOTIFICATION_AUDIT_ARTIFACTS = [
@@ -207,14 +215,14 @@ async function baselineLedger(
   const pendingMigrations = migrations.slice(appliedCount);
   verifyLegacyDataReconciliation(pendingMigrations);
   await sql.begin(async (tx) => {
-    const notificationAuditMigration = pendingMigrations.find(
+    const notificationAuditMigration = migrations.find(
       (migration) => migration.folderMillis === NOTIFICATION_AUDIT_MIGRATION,
     );
     if (notificationAuditMigration !== undefined) {
       await reconcileNotificationAuditArtifacts(tx, notificationAuditMigration);
     }
-    await reconcileNotificationAuditReplacements(tx, pendingMigrations);
-    await reconcileNotificationChecks(tx, pendingMigrations);
+    await reconcileNotificationAuditReplacements(tx, migrations);
+    await reconcileNotificationChecks(tx, migrations);
     if (pendingMigrations.some((migration) => migration.folderMillis === 1786217938315)) {
       await tx`
         update attachment
@@ -316,6 +324,15 @@ async function baselineLedger(
         end $$;
       `;
     }
+    if (pendingMigrations.some((migration) => migration.folderMillis === 1789603762953)) {
+      await tx`
+        update doc
+        set publish_token =
+          replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', '')
+        where visibility in ('workspace', 'members')
+          and (publish_token is null or publish_token = '')
+      `;
+    }
     await tx`create schema if not exists drizzle`;
     await tx`
       create table if not exists drizzle.__drizzle_migrations (
@@ -336,6 +353,41 @@ async function baselineLedger(
 function declaredTableCount(live: Awaited<ReturnType<typeof liveCatalog>>): number {
   const expectedNames = new Set(expectedCatalog(schema).tables.map((table) => table.name));
   return live.tables.filter((table) => expectedNames.has(table.name)).length;
+}
+
+function pendingMigrationsProvideChecks(
+  migrations: readonly MigrationMeta[],
+  drift: Drift,
+): boolean {
+  const targets = [
+    ...drift.missingCheckConstraints.map((entry) => ({ table: entry.table, name: entry.check })),
+    ...drift.checkConstraintMismatches.map((entry) => ({ table: entry.table, name: entry.name })),
+  ];
+  if (targets.length === 0) return false;
+  return targets.some(({ table, name }) =>
+    migrations.some((migration) =>
+      migration.sql.some(
+        (statement) =>
+          statement.includes(`ALTER TABLE "${table}" `) &&
+          statement.includes(`ADD CONSTRAINT "${name}" CHECK`),
+      ),
+    ),
+  );
+}
+
+const DROP_TABLE_STATEMENT = /^\s*drop\s+table\s+(?:if\s+exists\s+)?"?([a-z_][a-z0-9_]*)"?/iu;
+
+function pendingMigrationsDropLiveTables(
+  migrations: readonly MigrationMeta[],
+  live: Catalog,
+): boolean {
+  const liveTables = new Set(live.tables.map((table) => table.name));
+  return migrations.some((migration) =>
+    migration.sql.some((statement) => {
+      const match = DROP_TABLE_STATEMENT.exec(statement);
+      return match?.[1] !== undefined && liveTables.has(match[1].toLowerCase());
+    }),
+  );
 }
 
 export async function releaseDatabase(
@@ -362,7 +414,7 @@ export async function releaseDatabase(
     let applied = 0;
 
     if ((!hadLedger || existingRows.length === 0) && declaredTableCount(before) > 0) {
-      if (isBehind(beforeDrift)) {
+      if (needsCatchup(beforeDrift)) {
         throw new Error(
           'This legacy database is not compatible with the current schema. Apply the required catchup scripts, verify drift, and run db:release again.',
         );
@@ -374,7 +426,12 @@ export async function releaseDatabase(
     const rows = await ledgerRows(sql);
     const pending = verifyLedger(rows, migrations);
     if (pending > 0) {
-      if (isBehind(beforeDrift)) {
+      const pendingMigrations = migrations.slice(rows.length);
+      if (
+        needsCatchup(beforeDrift) ||
+        pendingMigrationsProvideChecks(pendingMigrations, beforeDrift) ||
+        pendingMigrationsDropLiveTables(pendingMigrations, before)
+      ) {
         await migrate(drizzle({ client: sql }), { migrationsFolder });
         applied = pending;
         mode = 'migrated';

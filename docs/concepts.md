@@ -214,9 +214,11 @@ beside the issues they describe rather than in a separate tool.
 
 - Organised into **collections**, and nestable.
 - **Visibility** is workspace-wide, private to named people, or a published URL.
-- **Shareable** through a members link that still requires sign-in, or a public
-  or unlisted link for people outside the workspace. An HTML page gets its own
-  URL and runs isolated from the app.
+- **Shareable** through a workspace link that still requires sign-in, or a public
+  or unlisted link for people outside the workspace. Both are the same kind of
+  link, a read only page outside the app, and the share dialog offers the
+  workspace one beside the document link as soon as a doc is shared with the
+  workspace. An HTML page gets its own URL and runs isolated from the app.
 - Commentable, and searchable alongside issues from the command palette.
 - Optionally bound to a path in a repository, so a doc can mirror a file.
 - A fenced `mermaid` block is drawn as a diagram, in the theme's own colours,
@@ -228,18 +230,15 @@ end up here.
 
 ## Standup
 
-A Kanban board of the whole workspace, with everyone's name in a row of tiles
-along the top. Click a name and the board filters to work assigned to or reviewed
-by that person. Click it again, or click Everyone, and you are back to the whole
-team.
+A Kanban board of the whole workspace. The toolbar has three controls, from left to right:
 
-That is the entire feature. There is no meeting object, no turn order and no
-timer, because the meeting already has a facilitator and they do not need
-software to tell them whose turn it is. What they need is one screen that shows
-what a given person is carrying, in the order the work moves.
+- **AI only** includes work created by, assigned to, reviewed by, commented on, reacted to, or changed by a member marked as an AI agent. Workspace admins set **Member type** to **AI agent** or **Human** in member settings. This classification is specific to the workspace and does not change permissions.
+- **All work / To review / Assigned** chooses assignments and reviews together, reviewer tasks, or assignments alone. It applies to the member selected in the next control. Pick your name, marked **(You)**, to see your own work. With **All Members**, it includes work for everyone.
+- **All Members** opens the full member list with workload counts. Pick a person to switch immediately, or choose **All Members** to return to the workspace. Unassigned work is available when present.
 
-Each tile carries a count of the open work that person owns or reviews, so you
-can see who is loaded before anyone speaks.
+Hold **Option** and press **Tab** to switch forward, or **Shift+Tab** to switch backward. The member dropdown opens as you switch and closes when you release Option. The shortcuts wrap through the available choices. Filters stay in the URL when you reload or share the view.
+
+Counts and filters are calculated by the server across all matching tasks, including tasks beyond the first page. The AI filter combines with the work type, member selection, and standard issue filters. Deleted comments do not count as involvement; recorded issue activity remains part of the history.
 
 ## Views and filters
 
