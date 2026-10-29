@@ -18,6 +18,7 @@ const INSTRUCTIONS = [
   'Orbit is a task manager. Issues live on teams and carry identifiers such as ENG-42.',
   'Call get_me first to learn the caller role and teams, then list_teams, list_states and list_labels before writing.',
   'Every tool acts as the user who owns the API key, so a request can fail with a forbidden error when their role does not allow it.',
+  'Issues, comments and documents come back with a url field: an absolute link to open them in Orbit, so share that link with the user.',
 ].join(' ');
 
 export function wwwAuthenticate(publicUrl: string): string {
@@ -43,6 +44,7 @@ export function grantsWrites(scopes: string): boolean {
 
 export function createOrbitMcpServer(
   principal: Principal,
+  publicUrl: string,
   scopes = EVERY_ORBIT_SCOPE,
   workspaceInstructions = '',
 ): McpServer {
@@ -54,7 +56,7 @@ export function createOrbitMcpServer(
     { capabilities: { tools: {} }, instructions },
   );
   allowTools(server, { reads: grantsReads(scopes), writes: grantsWrites(scopes) });
-  registerTools(server, principal);
+  registerTools(server, principal, publicUrl.replace(/\/+$/, ''));
   return server;
 }
 
@@ -97,6 +99,7 @@ export interface McpRequestOptions {
 
 async function dispatch(
   request: Request,
+  publicUrl: string,
   instructionsLoader: WorkspaceInstructionsLoader,
 ): Promise<Response> {
   const identity = await verifyMcpAccessToken(bearerToken(request));
@@ -107,7 +110,12 @@ async function dispatch(
     grantsReads(identity.scopes) && (await requestInitializesConnection(request))
       ? await instructionsLoader(identity.organizationId)
       : '';
-  const server = createOrbitMcpServer(identity.principal, identity.scopes, workspaceInstructions);
+  const server = createOrbitMcpServer(
+    identity.principal,
+    publicUrl,
+    identity.scopes,
+    workspaceInstructions,
+  );
   const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
   await server.connect(transport as unknown as Transport);
 
@@ -139,7 +147,11 @@ export async function handleMcpRequest(
 
   try {
     return await (options.dispatch === undefined
-      ? dispatch(request, options.loadWorkspaceInstructions ?? loadWorkspaceInstructions)
+      ? dispatch(
+          request,
+          options.publicUrl,
+          options.loadWorkspaceInstructions ?? loadWorkspaceInstructions,
+        )
       : options.dispatch(request));
   } catch (error: unknown) {
     const domain = toDomainError(error);

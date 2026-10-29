@@ -31,7 +31,7 @@ import {
 } from '@orbit/shared/constants';
 import { DomainError, notFound, validationFailed } from '@orbit/shared/errors';
 import type { Principal } from '@orbit/shared/policy';
-import { branchName } from '@orbit/shared/utils';
+import { branchName, issueCommentUrl, issueUrl } from '@orbit/shared/utils';
 import { z } from 'zod';
 import {
   resolveCycle,
@@ -86,7 +86,7 @@ async function issueRelationViews(
   }));
 }
 
-function registerCreateIssue(server: McpServer, principal: Principal): void {
+function registerCreateIssue(server: McpServer, principal: Principal, appUrl: string): void {
   defineTool(
     server,
     {
@@ -134,7 +134,7 @@ function registerCreateIssue(server: McpServer, principal: Principal): void {
       });
       await publish(created.actions);
       return {
-        issue: await describeIssue(principal, created.issue),
+        issue: await describeIssue(principal, appUrl, created.issue),
         deltas: deltaViews(created.actions),
       };
     },
@@ -186,7 +186,7 @@ async function resolveSubIssueItem(
   };
 }
 
-function registerCreateSubIssues(server: McpServer, principal: Principal): void {
+function registerCreateSubIssues(server: McpServer, principal: Principal, appUrl: string): void {
   defineTool(
     server,
     {
@@ -255,13 +255,14 @@ function registerCreateSubIssues(server: McpServer, principal: Principal): void 
         parent: parent.identifier,
         count: result.issues.length,
         identifiers: result.issues.map((issue) => issue.identifier),
+        urls: result.issues.map((issue) => `${appUrl}${issueUrl(issue.identifier)}`),
         deltas: deltaViews(result.actions),
       };
     },
   );
 }
 
-function registerUpdateIssue(server: McpServer, principal: Principal): void {
+function registerUpdateIssue(server: McpServer, principal: Principal, appUrl: string): void {
   defineTool(
     server,
     {
@@ -321,7 +322,7 @@ function registerUpdateIssue(server: McpServer, principal: Principal): void {
       const updated = await updateIssue(principal, issue.id, patch);
       await publish(updated.actions);
       return {
-        issue: await describeIssue(principal, updated.issue),
+        issue: await describeIssue(principal, appUrl, updated.issue),
         changed: updated.changes.map((change) => change.field),
         deltas: deltaViews(updated.actions),
       };
@@ -422,7 +423,7 @@ async function assertBulkProjectTeam(
   }
 }
 
-function registerBulkUpdateIssues(server: McpServer, principal: Principal): void {
+function registerBulkUpdateIssues(server: McpServer, principal: Principal, appUrl: string): void {
   defineTool(
     server,
     {
@@ -500,6 +501,7 @@ function registerBulkUpdateIssues(server: McpServer, principal: Principal): void
       return {
         count: result.issues.length,
         identifiers: result.issues.map((issue) => issue.identifier),
+        urls: result.issues.map((issue) => `${appUrl}${issueUrl(issue.identifier)}`),
         deltas: deltaViews(result.actions),
       };
     },
@@ -584,7 +586,7 @@ async function buildIssuePatch(
   return patch;
 }
 
-function registerGetIssue(server: McpServer, principal: Principal): void {
+function registerGetIssue(server: McpServer, principal: Principal, appUrl: string): void {
   defineTool(
     server,
     {
@@ -599,7 +601,7 @@ function registerGetIssue(server: McpServer, principal: Principal): void {
       const issue = await getIssue(principal, args.issue);
       return {
         issue: {
-          ...(await describeIssue(principal, issue)),
+          ...(await describeIssue(principal, appUrl, issue)),
           description: issue.description,
           labels: await issueLabelNames(principal, issue.id),
           relations: await issueRelationViews(principal, issue.id),
@@ -610,7 +612,7 @@ function registerGetIssue(server: McpServer, principal: Principal): void {
   );
 }
 
-function registerSearchIssues(server: McpServer, principal: Principal): void {
+function registerSearchIssues(server: McpServer, principal: Principal, appUrl: string): void {
   defineTool(
     server,
     {
@@ -659,7 +661,7 @@ function registerSearchIssues(server: McpServer, principal: Principal): void {
       const filter = await buildIssueFilter(principal, teamId, args);
       const page = await listIssues(principal, filter);
       return {
-        issues: await describeIssues(principal, page.issues),
+        issues: await describeIssues(principal, appUrl, page.issues),
         nextCursor: page.nextCursor,
       };
     },
@@ -719,7 +721,7 @@ async function buildIssueFilter(
   return filter;
 }
 
-function registerListMyIssues(server: McpServer, principal: Principal): void {
+function registerListMyIssues(server: McpServer, principal: Principal, appUrl: string): void {
   defineTool(
     server,
     {
@@ -744,14 +746,14 @@ function registerListMyIssues(server: McpServer, principal: Principal): void {
         ...(args.stateCategory === undefined ? {} : { stateCategory: args.stateCategory }),
       });
       return {
-        issues: await describeIssues(principal, page.issues),
+        issues: await describeIssues(principal, appUrl, page.issues),
         nextCursor: page.nextCursor,
       };
     },
   );
 }
 
-function registerMoveIssue(server: McpServer, principal: Principal): void {
+function registerMoveIssue(server: McpServer, principal: Principal, appUrl: string): void {
   defineTool(
     server,
     {
@@ -786,7 +788,7 @@ function registerMoveIssue(server: McpServer, principal: Principal): void {
       });
       await publish(moved.actions);
       return {
-        issue: await describeIssue(principal, moved.issue),
+        issue: await describeIssue(principal, appUrl, moved.issue),
         rebalanced: moved.rebalanced.length,
         deltas: deltaViews(moved.actions),
       };
@@ -794,13 +796,14 @@ function registerMoveIssue(server: McpServer, principal: Principal): void {
   );
 }
 
-function registerAddComment(server: McpServer, principal: Principal): void {
+function registerAddComment(server: McpServer, principal: Principal, appUrl: string): void {
   defineTool(
     server,
     {
       name: 'add_comment',
       title: 'Comment on an issue',
-      description: 'Post a markdown comment on an issue, optionally as a reply to another comment.',
+      description:
+        'Post a markdown comment on an issue, optionally as a reply to another comment. Returns the comment url.',
       readOnly: false,
       destructive: false,
       inputSchema: {
@@ -820,6 +823,7 @@ function registerAddComment(server: McpServer, principal: Principal): void {
         comment: {
           id: created.comment.id,
           issue: issue.identifier,
+          url: `${appUrl}${issueCommentUrl(issue.identifier, created.comment.id)}`,
           body: created.comment.body,
           createdAt: created.comment.createdAt.toISOString(),
         },
@@ -839,7 +843,7 @@ async function authorNames(ids: readonly string[]): Promise<Map<string, string>>
   return new Map(rows.map((row) => [row.id, row.name]));
 }
 
-function registerListIssueComments(server: McpServer, principal: Principal): void {
+function registerListIssueComments(server: McpServer, principal: Principal, appUrl: string): void {
   defineTool(
     server,
     {
@@ -864,6 +868,7 @@ function registerListIssueComments(server: McpServer, principal: Principal): voi
       return {
         comments: page.comments.map(({ comment }) => ({
           id: comment.id,
+          url: `${appUrl}${issueCommentUrl(issue.identifier, comment.id)}`,
           parentId: comment.parentId,
           authorId: comment.authorId,
           authorName: names.get(comment.authorId) ?? 'Unknown',
@@ -1164,17 +1169,17 @@ function registerCopyBranchName(server: McpServer, principal: Principal): void {
   );
 }
 
-export function registerIssueTools(server: McpServer, principal: Principal): void {
-  registerCreateIssue(server, principal);
-  registerCreateSubIssues(server, principal);
-  registerUpdateIssue(server, principal);
-  registerBulkUpdateIssues(server, principal);
-  registerGetIssue(server, principal);
-  registerSearchIssues(server, principal);
-  registerListMyIssues(server, principal);
-  registerMoveIssue(server, principal);
-  registerAddComment(server, principal);
-  registerListIssueComments(server, principal);
+export function registerIssueTools(server: McpServer, principal: Principal, appUrl: string): void {
+  registerCreateIssue(server, principal, appUrl);
+  registerCreateSubIssues(server, principal, appUrl);
+  registerUpdateIssue(server, principal, appUrl);
+  registerBulkUpdateIssues(server, principal, appUrl);
+  registerGetIssue(server, principal, appUrl);
+  registerSearchIssues(server, principal, appUrl);
+  registerListMyIssues(server, principal, appUrl);
+  registerMoveIssue(server, principal, appUrl);
+  registerAddComment(server, principal, appUrl);
+  registerListIssueComments(server, principal, appUrl);
   registerSetRelation(server, principal);
   registerRemoveRelation(server, principal);
   registerMarkIssueDuplicate(server, principal);
