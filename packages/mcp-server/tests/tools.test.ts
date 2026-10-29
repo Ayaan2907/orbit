@@ -6,6 +6,7 @@ import {
   connect,
   createWorkspace,
   errorPayload,
+  MCP_TEST_PUBLIC_URL,
   mintToken,
   resetDatabase,
   type TestClient,
@@ -303,6 +304,40 @@ describe('issues', () => {
     expect(comment.body).toBe('Picking this up now.');
     expect(comment.issue).toBe(created.identifier);
     expect(deltasOf(payload)[0]).toMatchObject({ model: 'comment', action: 'insert' });
+  });
+
+  it('returns absolute links for issues, comments and documents', async () => {
+    const created = await admin.result('create_issue', {
+      team: workspace.teamKey,
+      title: 'Needs a link',
+    });
+    const issue = created['issue'] as { identifier: string; url: string };
+    expect(issue.url).toBe(`${MCP_TEST_PUBLIC_URL}/issue/${issue.identifier}`);
+
+    const commented = await admin.result('add_comment', {
+      issue: issue.identifier,
+      body: 'Linked.',
+    });
+    const comment = commented['comment'] as { id: string; url: string };
+    const commentUrl = `${issue.url}#comment-${comment.id}`;
+    expect(comment.url).toBe(commentUrl);
+
+    const edited = await admin.result('edit_comment', { commentId: comment.id, body: 'Edited.' });
+    expect(edited['url']).toBe(commentUrl);
+
+    const listed = await admin.result('list_issue_comments', { issue: issue.identifier });
+    expect((listed['comments'] as { url: string }[])[0]?.url).toBe(commentUrl);
+
+    const doc = (await admin.result('create_doc', { title: 'Linked doc' }))['doc'] as {
+      id: string;
+      url: string;
+    };
+    expect(doc.url).toBe(`${MCP_TEST_PUBLIC_URL}/docs/${doc.id}`);
+
+    const docComment = (await admin.result('comment_on_doc', { doc: doc.id, body: 'Noted.' }))[
+      'comment'
+    ] as { id: string; url: string };
+    expect(docComment.url).toBe(`${doc.url}#doc-comment-${docComment.id}`);
   });
 
   it('resolves a label to update whose reference carries stray whitespace', async () => {
