@@ -21,8 +21,14 @@ const INSTRUCTIONS = [
   'Issues, comments and documents come back with a url field: an absolute link to open them in Orbit, so share that link with the user.',
 ].join(' ');
 
+function withoutTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') end -= 1;
+  return url.slice(0, end);
+}
+
 export function wwwAuthenticate(publicUrl: string): string {
-  const base = publicUrl.replace(/\/+$/, '');
+  const base = withoutTrailingSlashes(publicUrl);
   return `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource/mcp"`;
 }
 
@@ -56,7 +62,7 @@ export function createOrbitMcpServer(
     { capabilities: { tools: {} }, instructions },
   );
   allowTools(server, { reads: grantsReads(scopes), writes: grantsWrites(scopes) });
-  registerTools(server, principal, publicUrl.replace(/\/+$/, ''));
+  registerTools(server, principal, withoutTrailingSlashes(publicUrl));
   return server;
 }
 
