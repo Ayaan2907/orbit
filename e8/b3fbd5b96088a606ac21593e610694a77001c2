@@ -1,0 +1,20 @@
+packages/mcp-server/tests/tools.test.ts
+  s_f114b24eea9944::t_4d1899490d6307 9,309-340
+  s_f114b24eea9944::t_672f1531d58938 341-342
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e8b3fbd5b96088a606ac21593e610694a77001c2",
+  "prompts": {},
+  "sessions": {
+    "s_f114b24eea9944": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ed2a509e-7812-4e71-8f8b-e8c4441881aa",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}

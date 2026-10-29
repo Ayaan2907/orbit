@@ -1,0 +1,34 @@
+packages/mcp-server/src/server.ts
+  s_f114b24eea9944::t_ca6bba6caa9fc5 21,47,59,102,113-118,150-154
+packages/mcp-server/src/views.ts
+  s_f114b24eea9944::t_94218b9f0b3384 11,19,53,63,85,107,110-115
+packages/mcp-server/src/tools/workspace.ts
+  s_f114b24eea9944::t_58fed04b500134 18,27-31,103-107
+packages/mcp-server/src/tools/index.ts
+  s_f114b24eea9944::t_ca6bba6caa9fc5 16,20-21,24,26
+packages/mcp-server/src/tools/planning.ts
+  s_f114b24eea9944::t_f07bf99d963810 208-212
+  s_f114b24eea9944::t_20cd5fd67e94d8 125,201,214
+packages/mcp-server/src/tools/issues.ts
+  s_f114b24eea9944::t_94218b9f0b3384 89,137,265,325,589,604,615,664,724,749,756,791,799,805-806,826,1172-1173,1175,1177-1181
+  s_f114b24eea9944::t_20cd5fd67e94d8 846,871,1182
+packages/mcp-server/src/tools/docs.ts
+  s_f114b24eea9944::t_1b7466b7184bf1 26,45,54-56,64-66,70,160,198,215,268,325,345,386-392,412-418,607,625
+  s_f114b24eea9944::t_f07bf99d963810 57-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "59fa8c8020f42de18978c468e5692743c4c94aec",
+  "prompts": {},
+  "sessions": {
+    "s_f114b24eea9944": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ed2a509e-7812-4e71-8f8b-e8c4441881aa",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
