@@ -76,13 +76,15 @@ async function issueLabelNames(principal: Principal, issueId: string): Promise<s
 
 async function issueRelationViews(
   principal: Principal,
+  appUrl: string,
   issueId: string,
-): Promise<{ type: string; identifier: string; title: string }[]> {
+): Promise<{ type: string; identifier: string; title: string; url: string }[]> {
   const related = await listRelatedIssues(principal, issueId);
   return related.map((entry) => ({
     type: entry.type,
     identifier: entry.issue.identifier,
     title: entry.issue.title,
+    url: `${appUrl}${issueUrl(entry.issue.identifier)}`,
   }));
 }
 
@@ -604,7 +606,7 @@ function registerGetIssue(server: McpServer, principal: Principal, appUrl: strin
           ...(await describeIssue(principal, appUrl, issue)),
           description: issue.description,
           labels: await issueLabelNames(principal, issue.id),
-          relations: await issueRelationViews(principal, issue.id),
+          relations: await issueRelationViews(principal, appUrl, issue.id),
           attachments: (await listIssueAttachments(principal, issue.id)).map(describeAttachment),
         },
       };
@@ -915,7 +917,7 @@ function registerSetRelation(server: McpServer, principal: Principal): void {
   );
 }
 
-function registerRemoveRelation(server: McpServer, principal: Principal): void {
+function registerRemoveRelation(server: McpServer, principal: Principal, appUrl: string): void {
   defineTool(
     server,
     {
@@ -941,14 +943,14 @@ function registerRemoveRelation(server: McpServer, principal: Principal): void {
       await publish(actions);
       return {
         issue: issue.identifier,
-        relations: await issueRelationViews(principal, issue.id),
+        relations: await issueRelationViews(principal, appUrl, issue.id),
         deltas: deltaViews(actions),
       };
     },
   );
 }
 
-function registerMarkIssueDuplicate(server: McpServer, principal: Principal): void {
+function registerMarkIssueDuplicate(server: McpServer, principal: Principal, appUrl: string): void {
   defineTool(
     server,
     {
@@ -974,7 +976,7 @@ function registerMarkIssueDuplicate(server: McpServer, principal: Principal): vo
       return {
         issue: issue.identifier,
         survivorIssue: survivor.identifier,
-        relations: await issueRelationViews(principal, issue.id),
+        relations: await issueRelationViews(principal, appUrl, issue.id),
         deltas: deltaViews(result.actions),
       };
     },
@@ -1181,8 +1183,8 @@ export function registerIssueTools(server: McpServer, principal: Principal, appU
   registerAddComment(server, principal, appUrl);
   registerListIssueComments(server, principal, appUrl);
   registerSetRelation(server, principal);
-  registerRemoveRelation(server, principal);
-  registerMarkIssueDuplicate(server, principal);
+  registerRemoveRelation(server, principal, appUrl);
+  registerMarkIssueDuplicate(server, principal, appUrl);
   registerAttachFile(server, principal);
   registerListIssueAttachments(server, principal);
   registerReadAttachment(server, principal);

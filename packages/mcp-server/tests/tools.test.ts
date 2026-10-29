@@ -36,6 +36,7 @@ interface RelationShape {
   readonly type: string;
   readonly identifier: string;
   readonly title: string;
+  readonly url: string;
 }
 
 interface DeltaShape {
@@ -338,6 +339,23 @@ describe('issues', () => {
       'comment'
     ] as { id: string; url: string };
     expect(docComment.url).toBe(`${doc.url}#doc-comment-${docComment.id}`);
+
+    const editedDocComment = (
+      await admin.result('edit_doc_comment', { commentId: docComment.id, body: 'Edited note.' })
+    )['comment'] as { url: string };
+    expect(editedDocComment.url).toBe(docComment.url);
+
+    const docComments = await admin.result('list_doc_comments', { doc: doc.id });
+    expect((docComments['comments'] as { url: string }[])[0]?.url).toBe(docComment.url);
+
+    const archived = (await admin.result('archive_issue', { issue: issue.identifier }))[
+      'archived'
+    ] as { url: string };
+    expect(archived.url).toBe(issue.url);
+    const restored = (await admin.result('unarchive_issue', { issue: issue.identifier }))[
+      'restored'
+    ] as { url: string };
+    expect(restored.url).toBe(issue.url);
   });
 
   it('resolves a label to update whose reference carries stray whitespace', async () => {
@@ -405,6 +423,7 @@ describe('issues', () => {
       type: 'blocked_by',
       identifier: first.identifier,
       title: 'Blocks the other',
+      url: `${MCP_TEST_PUBLIC_URL}/issue/${first.identifier}`,
     });
   });
 
@@ -490,6 +509,7 @@ describe('issues', () => {
       type: 'duplicated_by',
       identifier: duplicate.identifier,
       title: 'Duplicate issue',
+      url: `${MCP_TEST_PUBLIC_URL}/issue/${duplicate.identifier}`,
     });
   });
 

@@ -15,7 +15,7 @@ import {
   updateProject,
 } from '@orbit/core';
 import type { Principal } from '@orbit/shared/policy';
-import { issueCommentUrl } from '@orbit/shared/utils';
+import { issueCommentUrl, issueUrl } from '@orbit/shared/utils';
 import { issueRefSchema } from '@orbit/shared/validators';
 import { z } from 'zod';
 import { resolveCycle, resolveProject } from '../resolve.ts';
@@ -44,7 +44,13 @@ export function registerWorkspaceTools(
       const issue = await getIssue(principal, args.issue);
       const saved = await archiveIssue(principal, issue.id);
       await publish(saved.actions);
-      return { archived: { id: saved.issue.id, identifier: saved.issue.identifier } };
+      return {
+        archived: {
+          id: saved.issue.id,
+          identifier: saved.issue.identifier,
+          url: `${appUrl}${issueUrl(saved.issue.identifier)}`,
+        },
+      };
     },
   );
 
@@ -61,7 +67,13 @@ export function registerWorkspaceTools(
       const issue = await getIssue(principal, args.issue);
       const saved = await unarchiveIssue(principal, issue.id);
       await publish(saved.actions);
-      return { restored: { id: saved.issue.id, identifier: saved.issue.identifier } };
+      return {
+        restored: {
+          id: saved.issue.id,
+          identifier: saved.issue.identifier,
+          url: `${appUrl}${issueUrl(saved.issue.identifier)}`,
+        },
+      };
     },
   );
 

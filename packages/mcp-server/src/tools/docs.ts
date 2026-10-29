@@ -361,6 +361,7 @@ export function registerDocTools(server: McpServer, principal: Principal, appUrl
       return {
         comments: page.comments.map((row) => ({
           id: row.id,
+          url: `${appUrl}${docCommentUrl(id, row.id)}`,
           body: row.body,
           authorId: row.authorId,
           createdAt: row.createdAt.toISOString(),
