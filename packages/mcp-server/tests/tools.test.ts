@@ -437,6 +437,8 @@ describe('issues', () => {
     });
     expect(res['issue']).toBe(duplicate.identifier);
     expect(res['relatedIssue']).toBe(survivor.identifier);
+    expect(res['url']).toBe(`${MCP_TEST_PUBLIC_URL}/issue/${duplicate.identifier}`);
+    expect(res['relatedIssueUrl']).toBe(`${MCP_TEST_PUBLIC_URL}/issue/${survivor.identifier}`);
     expect(res['type']).toBe('duplicate_of');
   });
 
@@ -456,6 +458,7 @@ describe('issues', () => {
     });
 
     expect(removed['relations']).toEqual([]);
+    expect(removed['url']).toBe(`${MCP_TEST_PUBLIC_URL}/issue/${second.identifier}`);
     expect(relationsOf(await admin.result('get_issue', { issue: first.identifier }))).toEqual([]);
   });
 
@@ -503,6 +506,8 @@ describe('issues', () => {
 
     expect(result['issue']).toBe(duplicate.identifier);
     expect(result['survivorIssue']).toBe(survivor.identifier);
+    expect(result['url']).toBe(`${MCP_TEST_PUBLIC_URL}/issue/${duplicate.identifier}`);
+    expect(result['survivorIssueUrl']).toBe(`${MCP_TEST_PUBLIC_URL}/issue/${survivor.identifier}`);
 
     const survivorDetails = await admin.result('get_issue', { issue: survivor.identifier });
     expect(relationsOf(survivorDetails)).toContainEqual({
@@ -587,6 +592,7 @@ describe('issues', () => {
   it('builds a git branch name from an issue', async () => {
     const created = await newIssue('Fix the flaky login redirect');
     const payload = await admin.result('copy_branch_name', { issue: created.identifier });
+    expect(payload['url']).toBe(`${MCP_TEST_PUBLIC_URL}/issue/${created.identifier}`);
     expect(payload['branch']).toBe(
       `${workspace.adminUser.handle}/${created.identifier.toLowerCase()}-fix-the-flaky-login-redirect`,
     );
