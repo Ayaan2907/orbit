@@ -16,13 +16,13 @@ import { registerWorkspaceTools } from './workspace.ts';
 export function registerTools(server: McpServer, principal: Principal, appUrl: string): void {
   registerAnalyticsTools(server, principal);
   registerIdentityTools(server, principal);
-  registerInboxTools(server, principal);
+  registerInboxTools(server, principal, appUrl);
   registerIssueTools(server, principal, appUrl);
   registerPlanningTools(server, principal, appUrl);
   registerScrumTools(server, principal);
   registerAdminTools(server, principal);
   registerDocTools(server, principal, appUrl);
-  registerGithubTools(server, principal);
+  registerGithubTools(server, principal, appUrl);
   registerWorkspaceTools(server, principal, appUrl);
   registerTaxonomyTools(server, principal);
   registerOrgTools(server, principal);

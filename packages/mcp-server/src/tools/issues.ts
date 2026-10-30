@@ -255,6 +255,7 @@ function registerCreateSubIssues(server: McpServer, principal: Principal, appUrl
       await publish(result.actions);
       return {
         parent: parent.identifier,
+        parentUrl: `${appUrl}${issueUrl(parent.identifier)}`,
         count: result.issues.length,
         identifiers: result.issues.map((issue) => issue.identifier),
         urls: result.issues.map((issue) => `${appUrl}${issueUrl(issue.identifier)}`),
@@ -884,7 +885,7 @@ function registerListIssueComments(server: McpServer, principal: Principal, appU
   );
 }
 
-function registerSetRelation(server: McpServer, principal: Principal): void {
+function registerSetRelation(server: McpServer, principal: Principal, appUrl: string): void {
   defineTool(
     server,
     {
@@ -909,7 +910,9 @@ function registerSetRelation(server: McpServer, principal: Principal): void {
       await publish(result.actions);
       return {
         issue: issue.identifier,
+        url: `${appUrl}${issueUrl(issue.identifier)}`,
         relatedIssue: related.identifier,
+        relatedIssueUrl: `${appUrl}${issueUrl(related.identifier)}`,
         type: args.type,
         deltas: deltaViews(result.actions),
       };
@@ -943,6 +946,7 @@ function registerRemoveRelation(server: McpServer, principal: Principal, appUrl:
       await publish(actions);
       return {
         issue: issue.identifier,
+        url: `${appUrl}${issueUrl(issue.identifier)}`,
         relations: await issueRelationViews(principal, appUrl, issue.id),
         deltas: deltaViews(actions),
       };
@@ -975,7 +979,9 @@ function registerMarkIssueDuplicate(server: McpServer, principal: Principal, app
       await publish(result.actions);
       return {
         issue: issue.identifier,
+        url: `${appUrl}${issueUrl(issue.identifier)}`,
         survivorIssue: survivor.identifier,
+        survivorIssueUrl: `${appUrl}${issueUrl(survivor.identifier)}`,
         relations: await issueRelationViews(principal, appUrl, issue.id),
         deltas: deltaViews(result.actions),
       };
@@ -1140,7 +1146,7 @@ function registerAttachFile(server: McpServer, principal: Principal): void {
   );
 }
 
-function registerCopyBranchName(server: McpServer, principal: Principal): void {
+function registerCopyBranchName(server: McpServer, principal: Principal, appUrl: string): void {
   defineTool(
     server,
     {
@@ -1161,6 +1167,7 @@ function registerCopyBranchName(server: McpServer, principal: Principal): void {
       if (user === undefined) throw notFound('That user no longer exists.');
       return {
         issue: issue.identifier,
+        url: `${appUrl}${issueUrl(issue.identifier)}`,
         branch: branchName({
           username: user.handle,
           identifier: issue.identifier,
@@ -1182,12 +1189,12 @@ export function registerIssueTools(server: McpServer, principal: Principal, appU
   registerMoveIssue(server, principal, appUrl);
   registerAddComment(server, principal, appUrl);
   registerListIssueComments(server, principal, appUrl);
-  registerSetRelation(server, principal);
+  registerSetRelation(server, principal, appUrl);
   registerRemoveRelation(server, principal, appUrl);
   registerMarkIssueDuplicate(server, principal, appUrl);
   registerAttachFile(server, principal);
   registerListIssueAttachments(server, principal);
   registerReadAttachment(server, principal);
   registerListAttachments(server, principal);
-  registerCopyBranchName(server, principal);
+  registerCopyBranchName(server, principal, appUrl);
 }
