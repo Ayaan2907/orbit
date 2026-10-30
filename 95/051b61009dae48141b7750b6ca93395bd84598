@@ -1,0 +1,25 @@
+packages/mcp-server/tests/bulk-planning.test.ts
+  s_f114b24eea9944::t_855a1d1f19d169 7,48-51
+packages/mcp-server/tests/tools/github.test.ts
+  s_f114b24eea9944::t_855a1d1f19d169 9,223
+packages/mcp-server/tests/tools.test.ts
+  s_f114b24eea9944::t_855a1d1f19d169 440-441,461,509-510,595
+packages/mcp-server/tests/tools/inbox.test.ts
+  s_f114b24eea9944::t_855a1d1f19d169 7,47,53,56,59,65,75-76,85-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "95051b61009dae48141b7750b6ca93395bd84598",
+  "prompts": {},
+  "sessions": {
+    "s_f114b24eea9944": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ed2a509e-7812-4e71-8f8b-e8c4441881aa",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ayaan Kaifullah <ayaanansari7921@outlook.com>"
+    }
+  }
+}
